@@ -78,6 +78,20 @@ func main() {
 	w.ShowAndRun()
 }
 
+// The gain range the sliders offer. The device accepts more, but the official
+// app works within roughly this range.
+const (
+	eqMinDB = -6
+	eqMaxDB = 6
+)
+
+// eqBand is the row of widgets for one equalizer band.
+type eqBand struct {
+	label  *canvas.Text
+	value  *canvas.Text
+	slider *widget.Slider
+}
+
 // ui holds the widgets and the single client they act on.
 type ui struct {
 	win fyne.Window
@@ -93,6 +107,14 @@ type ui struct {
 	transLabel      *canvas.Text
 	transparencyBox fyne.CanvasObject
 	soundCard       fyne.CanvasObject
+
+	battery *canvas.Text
+	eqCard  fyne.CanvasObject
+	eqBands [gaia.EQBands]eqBand
+
+	// eq is the configuration last read from the device, so a single band can be
+	// changed without inventing values for the others.
+	eq gaia.EQ
 
 	reconnect *widget.Button
 
@@ -165,16 +187,74 @@ func (u *ui) build() fyne.CanvasObject {
 		container.NewVBox(modes, u.transparencyBox))
 	u.soundCard.Hide()
 
+	u.eqCard = card("Equalizer", u.buildEQ())
+	u.eqCard.Hide()
+
+	u.battery = heading("", 13, colorTextMuted, false)
+
 	u.reconnect = widget.NewButton("Reconnect", func() { go u.connectLoop() })
 
-	header := container.NewVBox(u.deviceName, u.status)
+	header := container.NewVBox(u.deviceName, u.battery, u.status)
 
 	return container.NewBorder(
 		container.NewPadded(header),
 		container.NewPadded(u.reconnect),
 		nil, nil,
-		container.NewVBox(u.soundCard),
+		container.NewVBox(u.soundCard, u.eqCard),
 	)
+}
+
+// buildEQ lays out one slider per band. The bands, their frequencies and the
+// gain range all come from the device itself, but the frequencies are only known
+// once it has been read, so the labels are filled in on refresh.
+func (u *ui) buildEQ() fyne.CanvasObject {
+	rows := container.NewVBox()
+
+	for i := range u.eqBands {
+		band := i
+
+		label := canvas.NewText("-", colorTextMuted)
+		label.TextSize = 12
+
+		value := canvas.NewText("0.0 dB", colorTextMuted)
+		value.TextSize = 12
+		value.Alignment = fyne.TextAlignTrailing
+
+		slider := widget.NewSlider(eqMinDB, eqMaxDB)
+		slider.Step = 0.5
+		slider.OnChangeEnded = func(v float64) {
+			u.mu.Lock()
+			applying := u.applying
+			u.mu.Unlock()
+			if applying {
+				return
+			}
+			value.Text = fmt.Sprintf("%+.1f dB", v)
+			value.Refresh()
+			u.setBandGain(band, v)
+		}
+
+		u.eqBands[band] = eqBand{label: label, value: value, slider: slider}
+		rows.Add(container.NewBorder(nil, nil, label, value, slider))
+	}
+
+	return rows
+}
+
+// setBandGain writes one band, leaving the rest of the configuration as the
+// device reported it.
+func (u *ui) setBandGain(band int, gainDB float64) {
+	u.mu.Lock()
+	eq := u.eq
+	u.mu.Unlock()
+
+	eq.Bands[band].GainCentiDB = int16(gainDB * 100)
+
+	u.mu.Lock()
+	u.eq = eq
+	u.mu.Unlock()
+
+	u.apply(func(c *m4.Client) error { return c.SetEQ(eq) })
 }
 
 // setMode applies one of the three sound modes.
@@ -383,6 +463,9 @@ func (u *ui) disconnect() {
 		if u.soundCard != nil {
 			u.soundCard.Hide()
 		}
+		if u.eqCard != nil {
+			u.eqCard.Hide()
+		}
 	})
 }
 
@@ -440,8 +523,41 @@ func (u *ui) refresh() {
 		}
 
 		u.showMode(modeFor(state))
+
+		if state.Has(gaia.CmdGetBattery) {
+			u.battery.Text = fmt.Sprintf("Battery %d%%", state.Battery)
+		} else {
+			u.battery.Text = ""
+		}
+		u.battery.Refresh()
+
+		if state.Has(gaia.CmdGetEQ) {
+			u.eqCard.Show()
+			u.mu.Lock()
+			u.eq = state.EQ
+			u.mu.Unlock()
+
+			for i, band := range state.EQ.Bands {
+				u.eqBands[i].label.Text = formatHz(band.Frequency)
+				u.eqBands[i].label.Refresh()
+				u.eqBands[i].value.Text = fmt.Sprintf("%+.1f dB", band.Gain())
+				u.eqBands[i].value.Refresh()
+				u.eqBands[i].slider.SetValue(band.Gain())
+			}
+		} else {
+			u.eqCard.Hide()
+		}
+
 		u.setStatusNow(fmt.Sprintf("Connected  ·  RFCOMM channel %d", state.ChannelID), colorTextMuted)
 	})
+}
+
+// formatHz renders a band's centre frequency the way an equalizer labels it.
+func formatHz(hz uint16) string {
+	if hz >= 1000 {
+		return fmt.Sprintf("%.1fk", float64(hz)/1000)
+	}
+	return fmt.Sprintf("%d", hz)
 }
 
 // setVisible shows or hides a widget, since Fyne has no single call for it.

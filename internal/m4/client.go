@@ -223,7 +223,12 @@ func (c *Client) Request(ctx context.Context, cmd uint16, payload ...byte) (gaia
 
 // requestTimeout is Request with DefaultTimeout applied.
 func (c *Client) requestTimeout(cmd uint16, payload ...byte) (gaia.Frame, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
+	return c.request(DefaultTimeout, cmd, payload...)
+}
+
+// request is Request with an explicit timeout.
+func (c *Client) request(timeout time.Duration, cmd uint16, payload ...byte) (gaia.Frame, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	return c.Request(ctx, cmd, payload...)
 }

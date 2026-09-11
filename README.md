@@ -50,9 +50,46 @@ IDs set a value and the following odd ID reads it back:
 | Command  | Meaning          |
 | -------- | ---------------- |
 | `0x0007` | Register for notifications |
+| `0x0602` / `0x0682` | Get charge state / notification |
+| `0x0603` / `0x0683` | Get battery percentage / notification |
+| `0x1002` / `0x1003` | Set / get equalizer |
+| `0x1004` | Commit equalizer |
+| `0x1006` | Set preamp |
 | `0x1008` / `0x1009` | Set / get bass boost |
+| `0x1201` | Get device info |
+| `0x1202` | Get firmware version |
+| `0x1206` | Get device name (NUL-terminated ASCII) |
+| `0x1A00` / `0x1A01` / `0x1A81` | Set / get / notify sound mode |
 | `0x1A02` / `0x1A03` | Set / get transparency (0-100) |
 | `0x1A04` / `0x1A05` | Set / get ANC |
+
+Everything below the first three rows was recovered from an HCI capture of
+Sennheiser's own app; see `cmd/m4snoop`.
+
+### Sound mode
+
+`0x1A00` carries key/value byte pairs rather than a single value. Key `0x01` is
+noise control: `0x00` off, `0x01` on, `0x02` adaptive. Keys `0x02` and `0x03` are
+reported by the device but have not been identified. `0x1A81` arrives unsolicited
+with every key when the setting changes.
+
+### Equalizer
+
+`0x1002` takes a 16-bit entry count followed by four-byte entries of
+`01 <id> <value hi> <value lo>`, and `0x1003` reads them back given a list of the
+IDs to fetch. Entry `0x01` is an overall preamp gain; the rest are grouped by
+band, with the high nibble selecting band 1-4:
+
+| Entry | Field | Observed |
+| ----- | ----- | -------- |
+| `0xN0` | filter type | `0x000B` on every band |
+| `0xN1` | centre frequency, Hz | 360, 1200, 9000, 18000 |
+| `0xN2` | gain, signed, hundredths of a dB | `0xFED4` is -3.00 dB |
+| `0xN3` | Q factor | `0x0B50` |
+
+A write is three commands in order: `0x1002` with the bands, `0x1006` with the
+matching preamp, then `0x1004` to commit. Without the commit the change is
+inaudible.
 
 Verified against hardware — `ff 03 00 00 04 95 1a 05` (get ANC) answers
 `ff 03 00 01 04 95 1b 05 01`.

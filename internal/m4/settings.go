@@ -1,8 +1,11 @@
 package m4
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/mislavperi/momentum4-control/internal/gaia"
 )
@@ -17,6 +20,9 @@ type State struct {
 	ANC          bool
 	Transparency int // 0..100, higher lets more of the outside world in
 	BassBoost    bool
+	Battery      int // charge level as a percentage
+	NoiseMode    NoiseMode
+	EQ           gaia.EQ
 	ChannelID    int
 
 	// Supported holds the get-commands the device answered.
@@ -83,11 +89,10 @@ func (c *Client) State() (State, error) {
 	s := State{ChannelID: c.ChannelID(), Supported: map[uint16]bool{}}
 
 	read := func(cmd uint16, store func(byte)) error {
-		f, err := c.requestTimeout(cmd)
+		f, err := c.request(readTimeout, cmd)
 		if err != nil {
-			var devErr *DeviceError
-			if errors.As(err, &devErr) {
-				return nil // unsupported on this firmware
+			if isUnsupported(err) {
+				return nil // not implemented by this firmware
 			}
 			return err
 		}
@@ -109,7 +114,52 @@ func (c *Client) State() (State, error) {
 	if err := read(gaia.CmdGetBassBoost, func(b byte) { s.BassBoost = b != 0 }); err != nil {
 		return s, err
 	}
+	if err := read(gaia.CmdGetBattery, func(b byte) { s.Battery = int(b) }); err != nil {
+		return s, err
+	}
+
+	// The mode and equalizer replies are structured, so they do not fit the
+	// single-byte reader above.
+	if mode, err := c.noiseMode(readTimeout); err == nil {
+		s.NoiseMode = mode
+		s.Supported[gaia.CmdGetSoundMode] = true
+	} else if !isUnsupported(err) {
+		return s, err
+	}
+
+	if eq, err := c.eq(readTimeout); err == nil {
+		s.EQ = eq
+		s.Supported[gaia.CmdGetEQ] = true
+	} else if !isUnsupported(err) {
+		return s, err
+	}
+
+	// Silence from every single command means the connection is gone, not that
+	// the device implements nothing.
+	if len(s.Supported) == 0 {
+		if err := c.lastFatal(); err != nil {
+			return s, err
+		}
+		return s, ErrNotConnected
+	}
+
 	return s, nil
+}
+
+// readTimeout bounds each read in State. It is shorter than DefaultTimeout
+// because a State call makes several reads, and some of them are expected to go
+// unanswered. It is a variable so tests need not wait out real timeouts.
+var readTimeout = 1500 * time.Millisecond
+
+// isUnsupported reports whether a failure means the device does not implement
+// the command, rather than the connection being broken.
+//
+// The device signals "not implemented" two ways: an error reply, or silence.
+// Silence is indistinguishable from a lost connection at this level, so callers
+// that need to tell them apart check the client's terminal error.
+func isUnsupported(err error) bool {
+	var devErr *DeviceError
+	return errors.As(err, &devErr) || errors.Is(err, context.DeadlineExceeded)
 }
 
 // RegisterNotifications asks the device to push updates when settings change on
@@ -151,4 +201,129 @@ func clamp(v, lo, hi int) int {
 		return hi
 	}
 	return v
+}
+
+// Battery reports the charge level as a percentage.
+func (c *Client) Battery() (int, error) {
+	f, err := c.requestTimeout(gaia.CmdGetBattery)
+	if err != nil {
+		return 0, err
+	}
+	b, err := payloadByte(f, gaia.CmdGetBattery)
+	return int(b), err
+}
+
+// DeviceName reports the headphones' own name, e.g. "M4AEBT Black".
+func (c *Client) DeviceName() (string, error) {
+	f, err := c.requestTimeout(gaia.CmdGetDeviceName)
+	if err != nil {
+		return "", err
+	}
+	// The name is NUL-terminated ASCII.
+	return string(bytes.TrimRight(f.Payload, "\x00")), nil
+}
+
+// Firmware reports the firmware version as major.minor.patch.
+func (c *Client) Firmware() (string, error) {
+	f, err := c.requestTimeout(gaia.CmdGetFirmware)
+	if err != nil {
+		return "", err
+	}
+	if len(f.Payload) < 3 {
+		return "", fmt.Errorf("m4: firmware reply carried %d bytes, want at least 3", len(f.Payload))
+	}
+	return fmt.Sprintf("%d.%d.%d", f.Payload[0], f.Payload[1], f.Payload[2]), nil
+}
+
+// NoiseMode is the headphones' noise control setting.
+type NoiseMode byte
+
+const (
+	NoiseOff      = NoiseMode(gaia.SoundModeOff)
+	NoiseOn       = NoiseMode(gaia.SoundModeOn)
+	NoiseAdaptive = NoiseMode(gaia.SoundModeAdaptive)
+)
+
+func (m NoiseMode) String() string {
+	switch m {
+	case NoiseOff:
+		return "off"
+	case NoiseOn:
+		return "on"
+	case NoiseAdaptive:
+		return "adaptive"
+	default:
+		return fmt.Sprintf("unknown(%d)", byte(m))
+	}
+}
+
+// NoiseMode reads the current noise control mode.
+//
+// The device answers with a sequence of key/value pairs rather than a single
+// value; only the mode key is interpreted here, since the others have not been
+// identified.
+func (c *Client) NoiseMode() (NoiseMode, error) {
+	return c.noiseMode(DefaultTimeout)
+}
+
+func (c *Client) noiseMode(timeout time.Duration) (NoiseMode, error) {
+	f, err := c.request(timeout, gaia.CmdGetSoundMode)
+	if err != nil {
+		return NoiseOff, err
+	}
+	value, ok := soundModeValue(f.Payload, gaia.SoundModeKeyMode)
+	if !ok {
+		return NoiseOff, fmt.Errorf("m4: sound mode reply carried no mode key: % x", f.Payload)
+	}
+	return NoiseMode(value), nil
+}
+
+// SetNoiseMode selects noise cancelling, adaptive, or off.
+func (c *Client) SetNoiseMode(m NoiseMode) error {
+	_, err := c.requestTimeout(gaia.CmdSetSoundMode, gaia.SoundModeKeyMode, byte(m))
+	return err
+}
+
+// soundModeValue picks one key out of a sound mode payload.
+func soundModeValue(payload []byte, key byte) (byte, bool) {
+	for i := 0; i+1 < len(payload); i += 2 {
+		if payload[i] == key {
+			return payload[i+1], true
+		}
+	}
+	return 0, false
+}
+
+// EQ reads the equalizer configuration.
+func (c *Client) EQ() (gaia.EQ, error) {
+	return c.eq(DefaultTimeout)
+}
+
+func (c *Client) eq(timeout time.Duration) (gaia.EQ, error) {
+	f, err := c.request(timeout, gaia.CmdGetEQ, gaia.EncodeEQQuery(gaia.EQGainQuery)...)
+	if err != nil {
+		return gaia.EQ{}, err
+	}
+	return gaia.DecodeEQ(f.Payload)
+}
+
+// SetEQ writes the equalizer configuration.
+//
+// The device needs three commands in order, which is how the official app does
+// it: write the bands, set the matching preamp, then commit. Skipping the commit
+// leaves the change inaudible.
+func (c *Client) SetEQ(eq gaia.EQ) error {
+	if _, err := c.requestTimeout(gaia.CmdSetEQ, gaia.EncodeEQ(eq)...); err != nil {
+		return err
+	}
+
+	// The app sends a preamp byte alongside the bands, scaled from the global
+	// gain, to keep boosted bands from clipping.
+	preamp := byte(int8(clamp(int(eq.GlobalGainCentiDB/100), -128, 127)))
+	if _, err := c.requestTimeout(gaia.CmdSetPreamp, preamp); err != nil {
+		return err
+	}
+
+	_, err := c.requestTimeout(gaia.CmdCommitEQ, 0x00, 0x01, 0x40, 0x00)
+	return err
 }

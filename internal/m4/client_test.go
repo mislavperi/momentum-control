@@ -4,12 +4,20 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/mislavperi/momentum4-control/internal/gaia"
 )
+
+// TestMain shortens the per-read timeout: several tests exercise a device that
+// stays silent, and the real budget would make the suite crawl.
+func TestMain(m *testing.M) {
+	readTimeout = 20 * time.Millisecond
+	os.Exit(m.Run())
+}
 
 // fakeDevice is an in-memory stand-in for the headphones. It decodes the frames
 // written to it and replies according to handler, which lets the protocol logic
@@ -126,7 +134,14 @@ func deviceState(anc byte, transparency byte, bass byte) func(gaia.Frame) []gaia
 			bass = f.Payload[0]
 			return []gaia.Frame{ack(f.Command)}
 		default:
-			return nil
+			// This firmware answers commands it does not implement with an
+			// error, as the real device does for bass boost.
+			return []gaia.Frame{{
+				Version: gaia.Version3,
+				Vendor:  gaia.VendorSennheiser,
+				Command: f.Command | gaia.MaskError,
+				Payload: []byte{0x01},
+			}}
 		}
 	}
 }
@@ -203,6 +218,88 @@ func TestDeviceErrorIsReported(t *testing.T) {
 	}
 	if devErr.Status != 0x07 || devErr.Command != gaia.CmdGetANC {
 		t.Errorf("DeviceError = %+v, want command %#04x status 0x07", devErr, gaia.CmdGetANC)
+	}
+}
+
+func TestStateSurvivesSilence(t *testing.T) {
+	// A device that simply ignores what it does not implement must still yield
+	// the settings it does answer, rather than failing the whole read.
+	device := newFakeDevice(func(f gaia.Frame) []gaia.Frame {
+		if f.Command == gaia.CmdGetANC {
+			return []gaia.Frame{ack(f.Command, 1)}
+		}
+		return nil // silence
+	})
+	client := newClient(device)
+	defer client.Close()
+
+	state, err := client.State()
+	if err != nil {
+		t.Fatalf("State: %v", err)
+	}
+	if !state.ANC || !state.Has(gaia.CmdGetANC) {
+		t.Errorf("State() = %+v, want ANC reported as supported and on", state)
+	}
+	if state.Has(gaia.CmdGetBattery) {
+		t.Error("State() reported battery as supported despite silence")
+	}
+}
+
+func TestStateFailsWhenNothingAnswers(t *testing.T) {
+	// Total silence means the connection is gone, not that the device
+	// implements nothing.
+	client := newClient(newFakeDevice(func(gaia.Frame) []gaia.Frame { return nil }))
+	defer client.Close()
+
+	if _, err := client.State(); err == nil {
+		t.Fatal("State() succeeded against a device that answered nothing")
+	}
+}
+
+func TestNoiseModeReadsTheModeKey(t *testing.T) {
+	device := newFakeDevice(func(f gaia.Frame) []gaia.Frame {
+		if f.Command == gaia.CmdGetSoundMode {
+			// Key/value pairs, as captured from the real device.
+			return []gaia.Frame{ack(f.Command, 0x01, 0x02, 0x02, 0x00, 0x03, 0x00)}
+		}
+		return nil
+	})
+	client := newClient(device)
+	defer client.Close()
+
+	mode, err := client.NoiseMode()
+	if err != nil {
+		t.Fatalf("NoiseMode: %v", err)
+	}
+	if mode != NoiseAdaptive {
+		t.Errorf("NoiseMode() = %v, want adaptive", mode)
+	}
+}
+
+func TestSetEQSendsWritePreampAndCommit(t *testing.T) {
+	device := newFakeDevice(func(f gaia.Frame) []gaia.Frame {
+		return []gaia.Frame{ack(f.Command)}
+	})
+	client := newClient(device)
+	defer client.Close()
+
+	var eq gaia.EQ
+	eq.Bands[0].GainCentiDB = 300
+
+	if err := client.SetEQ(eq); err != nil {
+		t.Fatalf("SetEQ: %v", err)
+	}
+
+	// The commit is what makes the change audible; missing it is a silent bug.
+	want := []uint16{gaia.CmdSetEQ, gaia.CmdSetPreamp, gaia.CmdCommitEQ}
+	got := device.commandsSent()
+	if len(got) != len(want) {
+		t.Fatalf("SetEQ sent %v, want %v", got, want)
+	}
+	for i, cmd := range want {
+		if got[i] != cmd {
+			t.Errorf("command %d = %#04x, want %#04x", i, got[i], cmd)
+		}
 	}
 }
 
