@@ -83,6 +83,9 @@ What did **not** make a difference, each tried repeatedly:
 - disconnecting the phone, so nothing else held a control session
 - waiting quietly, up to ten minutes, with nothing touching the device
 - which process asked, or whether it opened the channel via SDP or by scanning
+- dialling within a second of the device connecting, in case the service only
+  accepted connections just after link establishment. It does not: the app hooks
+  IOBluetooth's connect notification, and four such dials were refused
 
 While the control channel is refused, the Airoha/RACE service on another channel
 still opens and streams data, so the Bluetooth link itself is healthy. The cause
