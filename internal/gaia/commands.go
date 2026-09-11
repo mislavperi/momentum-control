@@ -54,13 +54,27 @@ const (
 	CmdSetPreamp uint16 = 0x1006
 )
 
-// ANC modes. The sound mode payload is a sequence of (mode, state) pairs: each
-// mode is enabled or disabled independently, rather than one mode being selected
-// out of several.
+// ANC settings. The sound mode payload is a sequence of (setting, value) pairs:
+// each is adjusted independently rather than one being selected out of several,
+// and they do not all take the same range of values.
 const (
-	AncAntiWind byte = 0x01
-	AncComfort  byte = 0x02
+	// AncWindNoise is wind-noise reduction, which takes three values: see the
+	// WindNoise constants.
+	AncWindNoise byte = 0x01
+
+	// AncComfort was reported at 0 throughout the captures. Another
+	// implementation calls it Comfort; its effect has not been confirmed here.
+	AncComfort byte = 0x02
+
+	// AncAdaptive is adaptive noise cancelling, on or off.
 	AncAdaptive byte = 0x03
+)
+
+// Values of AncWindNoise.
+const (
+	WindNoiseOff       byte = 0x00
+	WindNoiseAutomatic byte = 0x01
+	WindNoiseMaximum   byte = 0x02
 )
 
 // Feature IDs accepted by CmdRegisterNotification. Registering asks the device

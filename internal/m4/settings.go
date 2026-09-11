@@ -48,7 +48,8 @@ func (c *Client) SetANC(on bool) error {
 	return err
 }
 
-// Transparency reports the transparency level, 0..100.
+// Transparency reports the level from full noise cancelling to full
+// transparency: 0 lets nothing through, 100 lets the outside world in.
 func (c *Client) Transparency() (int, error) {
 	f, err := c.requestTimeout(gaia.CmdGetTransparency)
 	if err != nil {
@@ -248,15 +249,15 @@ func (c *Client) Firmware() (string, error) {
 type AncMode byte
 
 const (
-	AncAntiWind = AncMode(gaia.AncAntiWind)
-	AncComfort  = AncMode(gaia.AncComfort)
-	AncAdaptive = AncMode(gaia.AncAdaptive)
+	AncWindNoise = AncMode(gaia.AncWindNoise)
+	AncComfort   = AncMode(gaia.AncComfort)
+	AncAdaptive  = AncMode(gaia.AncAdaptive)
 )
 
 func (m AncMode) String() string {
 	switch m {
-	case AncAntiWind:
-		return "anti-wind"
+	case AncWindNoise:
+		return "wind noise reduction"
 	case AncComfort:
 		return "comfort"
 	case AncAdaptive:
@@ -266,9 +267,39 @@ func (m AncMode) String() string {
 	}
 }
 
-// AncModes maps each mode to the state the device reports for it. The states
-// observed are 0 and 1, plus 2 on anti-wind, whose meaning is not known.
+// AncModes maps each setting to the value the device reports for it.
+//
+// Most are 0 or 1, but wind-noise reduction has three levels, which is why this
+// keeps the raw value rather than a boolean.
 type AncModes map[AncMode]byte
+
+// WindNoise reports the wind-noise reduction level.
+func (m AncModes) WindNoise() byte { return m[AncWindNoise] }
+
+// WindNoiseName renders the wind-noise reduction level.
+func WindNoiseName(level byte) string {
+	switch level {
+	case gaia.WindNoiseOff:
+		return "off"
+	case gaia.WindNoiseAutomatic:
+		return "automatic"
+	case gaia.WindNoiseMaximum:
+		return "maximum"
+	default:
+		return fmt.Sprintf("unknown(%d)", level)
+	}
+}
+
+// SetWindNoise sets the wind-noise reduction level.
+func (c *Client) SetWindNoise(level byte) error {
+	_, err := c.requestTimeout(gaia.CmdSetSoundMode, gaia.AncWindNoise, level)
+	return err
+}
+
+// SetAdaptive turns adaptive noise cancelling on or off.
+func (c *Client) SetAdaptive(on bool) error {
+	return c.SetAncMode(AncAdaptive, on)
+}
 
 // Enabled reports whether a mode is on.
 func (m AncModes) Enabled(mode AncMode) bool { return m[mode] != 0 }

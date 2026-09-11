@@ -79,19 +79,22 @@ Sennheiser's own app; see `cmd/m4snoop`.
 pairs. The device therefore states which features it implements, which beats
 inferring support from which commands happen to answer.
 
-### ANC modes
+### ANC settings
 
-`0x1A00` carries `(mode, state)` byte pairs. The modes are not mutually
-exclusive; each is switched on or off in its own right:
+`0x1A00` carries `(setting, value)` byte pairs. These are independent settings,
+not a choice between modes, and they do not share a value range:
 
-| Mode | Meaning |
-| ---- | ------- |
-| `0x01` | Anti-Wind |
-| `0x02` | Comfort |
-| `0x03` | Adaptive |
+| Setting | Meaning | Values |
+| ------- | ------- | ------ |
+| `0x01` | Wind-noise reduction | 0 off, 1 automatic, 2 maximum |
+| `0x02` | Reported as 0 throughout; another implementation calls it Comfort | 0/1 |
+| `0x03` | Adaptive noise cancelling | 0/1 |
 
-`0x1A81` arrives unsolicited with every mode's state when one changes. A state of
-2 was observed on anti-wind and its meaning is not known.
+`0x1A81` arrives unsolicited with every setting when one changes.
+
+Transparency (`0x1A02`) runs the other way from what its name suggests: 0 is full
+noise cancelling and 100 is full transparency, matching the slider in
+Sennheiser's app.
 
 ### Equalizer
 
@@ -235,7 +238,13 @@ serial queue while the main thread stays free to deliver callbacks.
 Protocol groundwork from
 [f3Y0/momentum4-control](https://github.com/f3Y0/momentum4-control) (MIT), and
 from [justsepi/Momentum4_control_linux](https://github.com/justsepi/Momentum4_control_linux),
-whose constants corrected the ANC model here: `0x1A00` carries `(mode, state)`
+whose constants first corrected the ANC model here: `0x1A00` carries `(mode, state)`
 pairs for three independent modes, not a single mode selector. That project in
 turn credits `m4.json` extracted from Sennheiser's official app by
 [zaval/sennheiser-desktop-client](https://github.com/zaval/sennheiser-desktop-client).
+
+[arjun1194/momentum-control-macos](https://github.com/arjun1194/momentum-control-macos)
+is an independent macOS implementation; its documentation named the ANC settings
+precisely (wind-noise reduction has three levels, adaptive ANC is a separate
+toggle) and its SPP framing matches what is described above, which is useful
+corroboration for a protocol with no specification.
