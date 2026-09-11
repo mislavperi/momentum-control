@@ -277,8 +277,8 @@ func TestAncModesReadsEveryModeState(t *testing.T) {
 	if modes.Enabled(AncComfort) {
 		t.Error("comfort reported on, want off")
 	}
-	if modes.WindNoise() != gaia.WindNoiseMaximum {
-		t.Errorf("wind noise = %s, want maximum", WindNoiseName(modes.WindNoise()))
+	if modes.WindNoise() != gaia.WindNoiseAutomatic {
+		t.Errorf("wind noise = %s, want automatic", WindNoiseName(modes.WindNoise()))
 	}
 }
 

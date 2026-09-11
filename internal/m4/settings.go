@@ -281,10 +281,10 @@ func WindNoiseName(level byte) string {
 	switch level {
 	case gaia.WindNoiseOff:
 		return "off"
-	case gaia.WindNoiseAutomatic:
-		return "automatic"
 	case gaia.WindNoiseMaximum:
 		return "maximum"
+	case gaia.WindNoiseAutomatic:
+		return "automatic"
 	default:
 		return fmt.Sprintf("unknown(%d)", level)
 	}

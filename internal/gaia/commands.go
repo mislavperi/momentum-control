@@ -30,11 +30,12 @@ const (
 	CmdSetSoundMode    uint16 = 0x1A00
 	CmdGetSoundMode    uint16 = 0x1A01
 	NotifySoundMode    uint16 = 0x1A81
+	NotifyTransparency uint16 = 0x1A83
 	CmdGetBattery      uint16 = 0x0603
 	NotifyBattery      uint16 = 0x0683
 	CmdGetChargeState  uint16 = 0x0602
 	NotifyChargeState  uint16 = 0x0682
-	CmdGetDeviceName uint16 = 0x1206
+	CmdGetDeviceName   uint16 = 0x1206
 
 	// CmdGetFirmware lists per-component firmware versions; CmdGetSystemVersion
 	// is the release version users recognise.
@@ -43,7 +44,7 @@ const (
 	CmdGetHardware      uint16 = 0x1200
 
 	// CmdGetCodec reports the Bluetooth audio codec currently in use.
-	CmdGetCodec uint16 = 0x0800
+	CmdGetCodec        uint16 = 0x0800
 	CmdGetCapabilities uint16 = 0x0001
 
 	// Equalizer. The app writes the bands with CmdSetEQ, follows with the
@@ -71,10 +72,14 @@ const (
 )
 
 // Values of AncWindNoise.
+//
+// The ordering is not what the names suggest: maximum comes before automatic.
+// It is taken from the explicit value table in another implementation's protocol
+// notes, and has not been confirmed against hardware here.
 const (
 	WindNoiseOff       byte = 0x00
-	WindNoiseAutomatic byte = 0x01
-	WindNoiseMaximum   byte = 0x02
+	WindNoiseMaximum   byte = 0x01
+	WindNoiseAutomatic byte = 0x02
 )
 
 // Feature IDs accepted by CmdRegisterNotification. Registering asks the device
@@ -116,6 +121,7 @@ var commandNames = map[uint16]string{
 	CmdSetSoundMode:         "SetSoundMode",
 	CmdGetSoundMode:         "GetSoundMode",
 	NotifySoundMode:         "SoundModeChanged",
+	NotifyTransparency:      "TransparencyChanged",
 	CmdGetBattery:           "GetBattery",
 	NotifyBattery:           "BatteryChanged",
 	CmdGetChargeState:       "GetChargeState",

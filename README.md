@@ -86,11 +86,16 @@ not a choice between modes, and they do not share a value range:
 
 | Setting | Meaning | Values |
 | ------- | ------- | ------ |
-| `0x01` | Wind-noise reduction | 0 off, 1 automatic, 2 maximum |
+| `0x01` | Wind-noise reduction | 0 off, 1 maximum, 2 automatic |
 | `0x02` | Reported as 0 throughout; another implementation calls it Comfort | 0/1 |
 | `0x03` | Adaptive noise cancelling | 0/1 |
 
-`0x1A81` arrives unsolicited with every setting when one changes.
+`0x1A81` arrives unsolicited with every setting when one changes, and `0x1A83`
+for transparency.
+
+The wind-noise values are ordered maximum before automatic, which reads oddly;
+that mapping comes from another implementation's value table rather than from
+anything verified here.
 
 Transparency (`0x1A02`) runs the other way from what its name suggests: 0 is full
 noise cancelling and 100 is full transparency, matching the slider in

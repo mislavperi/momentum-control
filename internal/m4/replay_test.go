@@ -80,9 +80,9 @@ func TestReplayCapturedSession(t *testing.T) {
 	if state.Battery != 40 {
 		t.Errorf("Battery = %d%%, want 40%%", state.Battery)
 	}
-	// The device reported wind-noise reduction at maximum, the rest off.
-	if got := state.AncModes.WindNoise(); got != gaia.WindNoiseMaximum {
-		t.Errorf("wind noise = %s, want maximum", WindNoiseName(got))
+	// The device reported wind-noise reduction at 2, which is automatic.
+	if got := state.AncModes.WindNoise(); got != gaia.WindNoiseAutomatic {
+		t.Errorf("wind noise = %s, want automatic", WindNoiseName(got))
 	}
 	if state.AncModes.Enabled(AncComfort) || state.AncModes.Enabled(AncAdaptive) {
 		t.Errorf("AncModes = %v, want comfort and adaptive off", state.AncModes)
