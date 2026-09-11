@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+#
+# Runs the m4ctl app bundle and relays its output to this terminal.
+#
+# The binary cannot simply be executed: macOS grants Bluetooth access per app
+# identity, and a directly-executed binary has none, so TCC terminates it. Going
+# through `open` launches it via LaunchServices, which gives it the bundle's
+# identity and lets macOS attach (and remember) the Bluetooth grant.
+
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+app="$root/bin/m4ctl.app"
+
+if [[ ! -d "$app" ]]; then
+	echo "m4ctl.app not built; run: make cli" >&2
+	exit 1
+fi
+
+out="$(mktemp -t m4ctl.out)"
+err="$(mktemp -t m4ctl.err)"
+trap 'rm -f "$out" "$err"' EXIT
+
+# -W waits for exit, -n forces a fresh instance so repeated runs do not reattach
+# to an already-running copy.
+set +e
+open -W -n --stdout "$out" --stderr "$err" "$app" --args "$@"
+status=$?
+set -e
+
+cat "$out"
+cat "$err" >&2
+exit $status

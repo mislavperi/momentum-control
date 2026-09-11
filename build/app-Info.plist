@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>com.momentum4.control</string>
+	<key>CFBundleName</key>
+	<string>MOMENTUM 4</string>
+	<key>CFBundleExecutable</key>
+	<string>momentum4</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>12.0</string>
+	<!-- IOBluetooth reaches CoreBluetooth internally, so TCC terminates the
+	     process on first use unless it declares why it wants Bluetooth. -->
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>MOMENTUM 4 Control talks to your headphones over Bluetooth.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+</dict>
+</plist>
