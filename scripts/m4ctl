@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 #
-# Runs the m4ctl app bundle and relays its output to this terminal.
+# Runs the m4ctl app bundle and relays its output to this terminal, live.
 #
 # The binary cannot simply be executed: macOS grants Bluetooth access per app
 # identity, and a directly-executed binary has none, so TCC terminates it. Going
 # through `open` launches it via LaunchServices, which gives it the bundle's
 # identity and lets macOS attach (and remember) the Bluetooth grant.
+#
+# `open` can only redirect output to files, so the output is tailed while the app
+# runs rather than printed after it exits. Long-running commands such as
+# `probe -wait` would otherwise show nothing at all until they finished.
 
 set -euo pipefail
 
@@ -19,15 +23,28 @@ fi
 
 out="$(mktemp -t m4ctl.out)"
 err="$(mktemp -t m4ctl.err)"
-trap 'rm -f "$out" "$err"' EXIT
+
+tail_pid=""
+cleanup() {
+	[[ -n "$tail_pid" ]] && kill "$tail_pid" 2>/dev/null || true
+	rm -f "$out" "$err"
+}
+trap cleanup EXIT
 
 # -W waits for exit, -n forces a fresh instance so repeated runs do not reattach
 # to an already-running copy.
+open -W -n --stdout "$out" --stderr "$err" "$app" --args "$@" &
+open_pid=$!
+
+# -q suppresses the per-file headers that tail prints for multiple files.
+tail -qf "$out" "$err" &
+tail_pid=$!
+
 set +e
-open -W -n --stdout "$out" --stderr "$err" "$app" --args "$@"
+wait "$open_pid"
 status=$?
 set -e
 
-cat "$out"
-cat "$err" >&2
+# Let the last lines flush before the trap kills tail.
+sleep 0.3
 exit $status
