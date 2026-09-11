@@ -25,7 +25,7 @@ var capturedReplies = map[uint16]string{
 	gaia.CmdGetEQ:           "000501010000011200000122000001320000014200 00",
 	gaia.CmdGetDeviceName:   "4d3441454254" + "20" + "426c61636b" + "00",
 	gaia.CmdGetFirmware:     "020d2a000000",
-	gaia.CmdGetDeviceInfo:   "0002000d002a",
+	gaia.CmdGetSystemVersion: "0002000d002a",
 	gaia.CmdGetCapabilities: "0009010801 0c0103011001040102010a020b010d0004",
 	gaia.CmdGetChargeState:  "0000",
 }
@@ -80,8 +80,12 @@ func TestReplayCapturedSession(t *testing.T) {
 	if state.Battery != 40 {
 		t.Errorf("Battery = %d%%, want 40%%", state.Battery)
 	}
-	if state.NoiseMode != NoiseAdaptive {
-		t.Errorf("NoiseMode = %v, want adaptive", state.NoiseMode)
+	// The device reported anti-wind at state 2, comfort and adaptive off.
+	if got := state.AncModes[AncAntiWind]; got != 2 {
+		t.Errorf("anti-wind state = %d, want 2", got)
+	}
+	if state.AncModes.Enabled(AncComfort) || state.AncModes.Enabled(AncAdaptive) {
+		t.Errorf("AncModes = %v, want comfort and adaptive off", state.AncModes)
 	}
 
 	// Bass boost is rejected by this firmware and must not be reported.

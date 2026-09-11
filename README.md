@@ -50,6 +50,7 @@ IDs set a value and the following odd ID reads it back:
 | Command  | Meaning          |
 | -------- | ---------------- |
 | `0x0001` | Get capability list |
+| `0x0800` | Get the audio codec in use |
 | `0x0007` | Register for notifications |
 | `0x0602` / `0x0682` | Get charge state / notification |
 | `0x0603` / `0x0683` | Get battery percentage / notification |
@@ -57,8 +58,9 @@ IDs set a value and the following odd ID reads it back:
 | `0x1004` | Commit equalizer |
 | `0x1006` | Set preamp |
 | `0x1008` / `0x1009` | Set / get bass boost |
-| `0x1201` | Get device info |
-| `0x1202` | Get firmware version |
+| `0x1200` | Get hardware revision |
+| `0x1201` | Get system release version (3 x uint16) |
+| `0x1202` | Get per-component firmware versions |
 | `0x1206` | Get device name (NUL-terminated ASCII) |
 | `0x1A00` / `0x1A01` / `0x1A81` | Set / get / notify sound mode |
 | `0x1A02` / `0x1A03` | Set / get transparency (0-100) |
@@ -75,12 +77,19 @@ Sennheiser's own app; see `cmd/m4snoop`.
 pairs. The device therefore states which features it implements, which beats
 inferring support from which commands happen to answer.
 
-### Sound mode
+### ANC modes
 
-`0x1A00` carries key/value byte pairs rather than a single value. Key `0x01` is
-noise control: `0x00` off, `0x01` on, `0x02` adaptive. Keys `0x02` and `0x03` are
-reported by the device but have not been identified. `0x1A81` arrives unsolicited
-with every key when the setting changes.
+`0x1A00` carries `(mode, state)` byte pairs. The modes are not mutually
+exclusive; each is switched on or off in its own right:
+
+| Mode | Meaning |
+| ---- | ------- |
+| `0x01` | Anti-Wind |
+| `0x02` | Comfort |
+| `0x03` | Adaptive |
+
+`0x1A81` arrives unsolicited with every mode's state when one changes. A state of
+2 was observed on anti-wind and its meaning is not known.
 
 ### Equalizer
 
@@ -222,4 +231,9 @@ serial queue while the main thread stays free to deliver callbacks.
 ## Credits
 
 Protocol groundwork from
-[f3Y0/momentum4-control](https://github.com/f3Y0/momentum4-control) (MIT).
+[f3Y0/momentum4-control](https://github.com/f3Y0/momentum4-control) (MIT), and
+from [justsepi/Momentum4_control_linux](https://github.com/justsepi/Momentum4_control_linux),
+whose constants corrected the ANC model here: `0x1A00` carries `(mode, state)`
+pairs for three independent modes, not a single mode selector. That project in
+turn credits `m4.json` extracted from Sennheiser's official app by
+[zaval/sennheiser-desktop-client](https://github.com/zaval/sennheiser-desktop-client).

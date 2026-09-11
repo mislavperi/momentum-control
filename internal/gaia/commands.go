@@ -34,9 +34,16 @@ const (
 	NotifyBattery      uint16 = 0x0683
 	CmdGetChargeState  uint16 = 0x0602
 	NotifyChargeState  uint16 = 0x0682
-	CmdGetDeviceName   uint16 = 0x1206
-	CmdGetFirmware     uint16 = 0x1202
-	CmdGetDeviceInfo   uint16 = 0x1201
+	CmdGetDeviceName uint16 = 0x1206
+
+	// CmdGetFirmware lists per-component firmware versions; CmdGetSystemVersion
+	// is the release version users recognise.
+	CmdGetFirmware      uint16 = 0x1202
+	CmdGetSystemVersion uint16 = 0x1201
+	CmdGetHardware      uint16 = 0x1200
+
+	// CmdGetCodec reports the Bluetooth audio codec currently in use.
+	CmdGetCodec uint16 = 0x0800
 	CmdGetCapabilities uint16 = 0x0001
 
 	// Equalizer. The app writes the bands with CmdSetEQ, follows with the
@@ -47,25 +54,13 @@ const (
 	CmdSetPreamp uint16 = 0x1006
 )
 
-// Keys inside a sound mode payload, which is a sequence of key/value byte pairs.
+// ANC modes. The sound mode payload is a sequence of (mode, state) pairs: each
+// mode is enabled or disabled independently, rather than one mode being selected
+// out of several.
 const (
-	// SoundModeKeyMode selects noise control: see the SoundMode values below.
-	SoundModeKeyMode byte = 0x01
-
-	// SoundModeKeyUnknown2 is reported by the device but its meaning has not
-	// been identified; it was 0 throughout the capture.
-	SoundModeKeyUnknown2 byte = 0x02
-
-	// SoundModeKeyToggle is a second setting the app turns on and off alongside
-	// the mode. Which feature it controls is not yet known.
-	SoundModeKeyToggle byte = 0x03
-)
-
-// Noise control modes, the values of SoundModeKeyMode.
-const (
-	SoundModeOff      byte = 0x00
-	SoundModeOn       byte = 0x01
-	SoundModeAdaptive byte = 0x02
+	AncAntiWind byte = 0x01
+	AncComfort  byte = 0x02
+	AncAdaptive byte = 0x03
 )
 
 // Feature IDs accepted by CmdRegisterNotification. Registering asks the device
@@ -113,7 +108,9 @@ var commandNames = map[uint16]string{
 	NotifyChargeState:       "ChargeStateChanged",
 	CmdGetDeviceName:        "GetDeviceName",
 	CmdGetFirmware:          "GetFirmware",
-	CmdGetDeviceInfo:        "GetDeviceInfo",
+	CmdGetSystemVersion:     "GetSystemVersion",
+	CmdGetHardware:          "GetHardware",
+	CmdGetCodec:             "GetCodec",
 	CmdGetCapabilities:      "GetCapabilities",
 	CmdSetEQ:                "SetEQ",
 	CmdGetEQ:                "GetEQ",
@@ -124,6 +121,37 @@ var commandNames = map[uint16]string{
 // IsGetter reports whether cmd follows the device's read-only (odd ID)
 // convention. Probing is restricted to these so discovery cannot alter settings.
 func IsGetter(cmd uint16) bool { return cmd&1 == 1 }
+
+// codecNames maps the codec IDs the device reports. Values above the documented
+// range have been observed on newer firmware.
+var codecNames = map[byte]string{
+	0: "SBC", 1: "AAC", 2: "aptX", 3: "aptX Low Latency", 4: "MP3",
+	5: "aptX HD", 6: "FastStream", 7: "LHDC", 8: "aptX Adaptive",
+	9: "aptX Lossless", 10: "LC3 (LE Audio)", 11: "aptX HD",
+	255: "not streaming",
+}
+
+// CodecName renders a codec ID.
+func CodecName(id byte) string {
+	if name, ok := codecNames[id]; ok {
+		return name
+	}
+	return fmt.Sprintf("unknown (%#02x)", id)
+}
+
+// ChargeStateName renders a charging status.
+func ChargeStateName(state byte) string {
+	switch state {
+	case 0:
+		return "not charging"
+	case 1:
+		return "charging"
+	case 2:
+		return "charge complete"
+	default:
+		return fmt.Sprintf("unknown (%#02x)", state)
+	}
+}
 
 // DecodeCapabilities reads the feature list returned by CmdGetCapabilities.
 //

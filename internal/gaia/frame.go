@@ -33,8 +33,8 @@ const (
 
 	// VendorSennheiser is the vendor ID used by MOMENTUM 4 control commands.
 	VendorSennheiser uint16 = 0x0495
-	// VendorQualcomm is the standard GAIA vendor ID, used by generic commands.
-	VendorQualcomm uint16 = 0x000A
+	// VendorQualcomm is the GAIA vendor ID used by core and firmware commands.
+	VendorQualcomm uint16 = 0x001D
 )
 
 // Response and error masks. A device reply to command C arrives as C|MaskACK on

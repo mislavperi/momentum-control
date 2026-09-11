@@ -256,23 +256,48 @@ func TestStateFailsWhenNothingAnswers(t *testing.T) {
 	}
 }
 
-func TestNoiseModeReadsTheModeKey(t *testing.T) {
+func TestAncModesReadsEveryModeState(t *testing.T) {
 	device := newFakeDevice(func(f gaia.Frame) []gaia.Frame {
 		if f.Command == gaia.CmdGetSoundMode {
-			// Key/value pairs, as captured from the real device.
-			return []gaia.Frame{ack(f.Command, 0x01, 0x02, 0x02, 0x00, 0x03, 0x00)}
+			// (mode, state) pairs, as captured from the real device.
+			return []gaia.Frame{ack(f.Command, 0x01, 0x02, 0x02, 0x00, 0x03, 0x01)}
 		}
 		return nil
 	})
 	client := newClient(device)
 	defer client.Close()
 
-	mode, err := client.NoiseMode()
+	modes, err := client.AncModes()
 	if err != nil {
-		t.Fatalf("NoiseMode: %v", err)
+		t.Fatalf("AncModes: %v", err)
 	}
-	if mode != NoiseAdaptive {
-		t.Errorf("NoiseMode() = %v, want adaptive", mode)
+	if !modes.Enabled(AncAdaptive) {
+		t.Error("adaptive reported off, want on")
+	}
+	if modes.Enabled(AncComfort) {
+		t.Error("comfort reported on, want off")
+	}
+	if modes[AncAntiWind] != 2 {
+		t.Errorf("anti-wind state = %d, want 2", modes[AncAntiWind])
+	}
+}
+
+func TestSetAncModeSendsModeAndState(t *testing.T) {
+	var got []byte
+	device := newFakeDevice(func(f gaia.Frame) []gaia.Frame {
+		if f.Command == gaia.CmdSetSoundMode {
+			got = append([]byte(nil), f.Payload...)
+		}
+		return []gaia.Frame{ack(f.Command)}
+	})
+	client := newClient(device)
+	defer client.Close()
+
+	if err := client.SetAncMode(AncAdaptive, true); err != nil {
+		t.Fatalf("SetAncMode: %v", err)
+	}
+	if len(got) != 2 || got[0] != byte(AncAdaptive) || got[1] != 1 {
+		t.Errorf("SetAncMode sent % x, want 03 01", got)
 	}
 }
 

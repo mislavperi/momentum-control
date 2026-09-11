@@ -298,6 +298,10 @@ func (u *ui) showMode(m mode) {
 }
 
 // modeFor derives the displayed mode from the device's actual settings.
+//
+// The headphones have no single "mode" setting: ANC is on or off, and a separate
+// transparency level decides how much of the outside world comes through. The
+// three buttons are a friendlier view of those two values.
 func modeFor(state m4.State) mode {
 	if !state.Has(gaia.CmdGetANC) {
 		return modeUnknown
@@ -305,7 +309,6 @@ func modeFor(state m4.State) mode {
 	if !state.ANC {
 		return modeOff
 	}
-	// The device reports a continuous level, so treat the upper half as ambient.
 	if state.Transparency >= 50 {
 		return modeAmbient
 	}

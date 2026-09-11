@@ -3,6 +3,7 @@ package m4
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"time"
@@ -21,7 +22,7 @@ type State struct {
 	Transparency int // 0..100, higher lets more of the outside world in
 	BassBoost    bool
 	Battery      int // charge level as a percentage
-	NoiseMode    NoiseMode
+	AncModes     AncModes
 	EQ           gaia.EQ
 	ChannelID    int
 
@@ -120,8 +121,8 @@ func (c *Client) State() (State, error) {
 
 	// The mode and equalizer replies are structured, so they do not fit the
 	// single-byte reader above.
-	if mode, err := c.noiseMode(readTimeout); err == nil {
-		s.NoiseMode = mode
+	if modes, err := c.ancModes(readTimeout); err == nil {
+		s.AncModes = modes
 		s.Supported[gaia.CmdGetSoundMode] = true
 	} else if !isUnsupported(err) {
 		return s, err
@@ -223,75 +224,109 @@ func (c *Client) DeviceName() (string, error) {
 	return string(bytes.TrimRight(f.Payload, "\x00")), nil
 }
 
-// Firmware reports the firmware version as major.minor.patch.
+// Firmware reports the system release version as major.minor.patch.
+//
+// The device reports it as three 16-bit values, and separately exposes a list of
+// per-component firmware versions that this does not use.
 func (c *Client) Firmware() (string, error) {
-	f, err := c.requestTimeout(gaia.CmdGetFirmware)
+	f, err := c.requestTimeout(gaia.CmdGetSystemVersion)
 	if err != nil {
 		return "", err
 	}
-	if len(f.Payload) < 3 {
-		return "", fmt.Errorf("m4: firmware reply carried %d bytes, want at least 3", len(f.Payload))
+	if len(f.Payload) < 6 {
+		return "", fmt.Errorf("m4: version reply carried %d bytes, want at least 6", len(f.Payload))
 	}
-	return fmt.Sprintf("%d.%d.%d", f.Payload[0], f.Payload[1], f.Payload[2]), nil
+	return fmt.Sprintf("%d.%d.%d",
+		binary.BigEndian.Uint16(f.Payload[0:2]),
+		binary.BigEndian.Uint16(f.Payload[2:4]),
+		binary.BigEndian.Uint16(f.Payload[4:6])), nil
 }
 
-// NoiseMode is the headphones' noise control setting.
-type NoiseMode byte
+// AncMode is one of the headphones' noise cancelling modes. They are not
+// mutually exclusive: each is enabled or disabled in its own right, which is why
+// the device reports a state per mode rather than a single selection.
+type AncMode byte
 
 const (
-	NoiseOff      = NoiseMode(gaia.SoundModeOff)
-	NoiseOn       = NoiseMode(gaia.SoundModeOn)
-	NoiseAdaptive = NoiseMode(gaia.SoundModeAdaptive)
+	AncAntiWind = AncMode(gaia.AncAntiWind)
+	AncComfort  = AncMode(gaia.AncComfort)
+	AncAdaptive = AncMode(gaia.AncAdaptive)
 )
 
-func (m NoiseMode) String() string {
+func (m AncMode) String() string {
 	switch m {
-	case NoiseOff:
-		return "off"
-	case NoiseOn:
-		return "on"
-	case NoiseAdaptive:
+	case AncAntiWind:
+		return "anti-wind"
+	case AncComfort:
+		return "comfort"
+	case AncAdaptive:
 		return "adaptive"
 	default:
 		return fmt.Sprintf("unknown(%d)", byte(m))
 	}
 }
 
-// NoiseMode reads the current noise control mode.
-//
-// The device answers with a sequence of key/value pairs rather than a single
-// value; only the mode key is interpreted here, since the others have not been
-// identified.
-func (c *Client) NoiseMode() (NoiseMode, error) {
-	return c.noiseMode(DefaultTimeout)
+// AncModes maps each mode to the state the device reports for it. The states
+// observed are 0 and 1, plus 2 on anti-wind, whose meaning is not known.
+type AncModes map[AncMode]byte
+
+// Enabled reports whether a mode is on.
+func (m AncModes) Enabled(mode AncMode) bool { return m[mode] != 0 }
+
+// AncModes reads the state of every noise cancelling mode.
+func (c *Client) AncModes() (AncModes, error) {
+	return c.ancModes(DefaultTimeout)
 }
 
-func (c *Client) noiseMode(timeout time.Duration) (NoiseMode, error) {
+func (c *Client) ancModes(timeout time.Duration) (AncModes, error) {
 	f, err := c.request(timeout, gaia.CmdGetSoundMode)
 	if err != nil {
-		return NoiseOff, err
+		return nil, err
 	}
-	value, ok := soundModeValue(f.Payload, gaia.SoundModeKeyMode)
-	if !ok {
-		return NoiseOff, fmt.Errorf("m4: sound mode reply carried no mode key: % x", f.Payload)
+
+	// The payload is a run of (mode, state) pairs.
+	if len(f.Payload)%2 != 0 {
+		return nil, fmt.Errorf("m4: sound mode reply has an odd length: % x", f.Payload)
 	}
-	return NoiseMode(value), nil
+
+	modes := make(AncModes, len(f.Payload)/2)
+	for i := 0; i+1 < len(f.Payload); i += 2 {
+		modes[AncMode(f.Payload[i])] = f.Payload[i+1]
+	}
+	return modes, nil
 }
 
-// SetNoiseMode selects noise cancelling, adaptive, or off.
-func (c *Client) SetNoiseMode(m NoiseMode) error {
-	_, err := c.requestTimeout(gaia.CmdSetSoundMode, gaia.SoundModeKeyMode, byte(m))
+// SetAncMode turns one noise cancelling mode on or off, leaving the others as
+// they are.
+func (c *Client) SetAncMode(mode AncMode, on bool) error {
+	_, err := c.requestTimeout(gaia.CmdSetSoundMode, byte(mode), boolByte(on))
 	return err
 }
 
-// soundModeValue picks one key out of a sound mode payload.
-func soundModeValue(payload []byte, key byte) (byte, bool) {
-	for i := 0; i+1 < len(payload); i += 2 {
-		if payload[i] == key {
-			return payload[i+1], true
-		}
+// Codec reports the Bluetooth audio codec in use.
+func (c *Client) Codec() (string, error) {
+	f, err := c.requestTimeout(gaia.CmdGetCodec)
+	if err != nil {
+		return "", err
 	}
-	return 0, false
+	b, err := payloadByte(f, gaia.CmdGetCodec)
+	if err != nil {
+		return "", err
+	}
+	return gaia.CodecName(b), nil
+}
+
+// ChargeState reports whether the headphones are charging.
+func (c *Client) ChargeState() (string, error) {
+	f, err := c.requestTimeout(gaia.CmdGetChargeState)
+	if err != nil {
+		return "", err
+	}
+	b, err := payloadByte(f, gaia.CmdGetChargeState)
+	if err != nil {
+		return "", err
+	}
+	return gaia.ChargeStateName(b), nil
 }
 
 // EQ reads the equalizer configuration.
