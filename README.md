@@ -19,7 +19,8 @@ firmware on the device this was developed against, so the app hides it.
 ## Building
 
 ```bash
-make cli
+make          # builds both bin/m4ctl.app and "bin/MOMENTUM 4.app"
+open "bin/MOMENTUM 4.app"
 ./scripts/m4ctl status
 ```
 
@@ -28,8 +29,8 @@ Set `M4_DEBUG=1` to trace every frame in and out.
 ## The protocol
 
 The headphones expose an SDP service named **GAIA**
-(`A2129FF3-081B-4C45-8AFE-469D9C4842EC`) on Bluetooth Classic RFCOMM, channel 2
-in practice, MTU 666. Frames are GAIA-style:
+(`A2129FF3-081B-4C45-8AFE-469D9C4842EC`) on Bluetooth Classic RFCOMM, MTU 666.
+The channel number moves between connections, see below. Frames are GAIA-style:
 
 ```
  0      1        2       3        4..5       6..7      8..8+n   [+1]
@@ -148,6 +149,7 @@ serial queue while the main thread stays free to deliver callbacks.
 | `internal/rfcomm` | IOBluetooth RFCOMM transport (cgo + Objective-C). |
 | `internal/m4` | Client: request/response matching, settings, probing. |
 | `cmd/m4ctl` | Command line interface. |
+| `cmd/momentum4` | Desktop app (Fyne). |
 
 ## Credits
 
