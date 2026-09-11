@@ -327,3 +327,46 @@ func (c *Client) SetEQ(eq gaia.EQ) error {
 	_, err := c.requestTimeout(gaia.CmdCommitEQ, 0x00, 0x01, 0x40, 0x00)
 	return err
 }
+
+// Capability is a feature the device reports as supported.
+type Capability struct {
+	Feature byte
+	Version byte
+}
+
+// Capabilities asks the device which features it implements.
+//
+// This is better than inferring support from which commands answer: the device
+// states it directly, so a UI can be built from the device's own list rather
+// than from trial and error.
+func (c *Client) Capabilities() ([]Capability, error) {
+	f, err := c.requestTimeout(gaia.CmdGetCapabilities)
+	if err != nil {
+		return nil, err
+	}
+
+	raw, err := gaia.DecodeCapabilities(f.Payload)
+	if err != nil {
+		return nil, err
+	}
+
+	caps := make([]Capability, 0, len(raw))
+	for _, r := range raw {
+		caps = append(caps, Capability{Feature: r.Feature, Version: r.Version})
+	}
+	return caps, nil
+}
+
+// Supports reports whether the device listed the given feature.
+func (c *Client) Supports(feature byte) (bool, error) {
+	caps, err := c.Capabilities()
+	if err != nil {
+		return false, err
+	}
+	for _, capability := range caps {
+		if capability.Feature == feature {
+			return true, nil
+		}
+	}
+	return false, nil
+}

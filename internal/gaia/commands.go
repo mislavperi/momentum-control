@@ -1,6 +1,9 @@
 package gaia
 
-import "fmt"
+import (
+	"encoding/binary"
+	"fmt"
+)
 
 // Known MOMENTUM 4 command IDs.
 //
@@ -121,3 +124,30 @@ var commandNames = map[uint16]string{
 // IsGetter reports whether cmd follows the device's read-only (odd ID)
 // convention. Probing is restricted to these so discovery cannot alter settings.
 func IsGetter(cmd uint16) bool { return cmd&1 == 1 }
+
+// DecodeCapabilities reads the feature list returned by CmdGetCapabilities.
+//
+// The payload is a 16-bit count followed by that many two-byte entries of
+// feature ID and version. A trailing pair beyond the count appears in captures
+// and is ignored.
+func DecodeCapabilities(payload []byte) ([]struct{ Feature, Version byte }, error) {
+	if len(payload) < 2 {
+		return nil, fmt.Errorf("gaia: capability payload of %d bytes is too short", len(payload))
+	}
+
+	count := int(binary.BigEndian.Uint16(payload[:2]))
+	body := payload[2:]
+	if len(body) < count*2 {
+		return nil, fmt.Errorf("gaia: capability payload claims %d features but carries %d bytes",
+			count, len(body))
+	}
+
+	out := make([]struct{ Feature, Version byte }, 0, count)
+	for i := 0; i < count; i++ {
+		out = append(out, struct{ Feature, Version byte }{
+			Feature: body[i*2+1],
+			Version: body[i*2],
+		})
+	}
+	return out, nil
+}

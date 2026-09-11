@@ -49,6 +49,7 @@ IDs set a value and the following odd ID reads it back:
 
 | Command  | Meaning          |
 | -------- | ---------------- |
+| `0x0001` | Get capability list |
 | `0x0007` | Register for notifications |
 | `0x0602` / `0x0682` | Get charge state / notification |
 | `0x0603` / `0x0683` | Get battery percentage / notification |
@@ -61,10 +62,18 @@ IDs set a value and the following odd ID reads it back:
 | `0x1206` | Get device name (NUL-terminated ASCII) |
 | `0x1A00` / `0x1A01` / `0x1A81` | Set / get / notify sound mode |
 | `0x1A02` / `0x1A03` | Set / get transparency (0-100) |
+| `0x1401` | Get paired hosts (multipoint) |
+| `0x1606` / `0x1607` | An unidentified on/off setting |
 | `0x1A04` / `0x1A05` | Set / get ANC |
 
 Everything below the first three rows was recovered from an HCI capture of
 Sennheiser's own app; see `cmd/m4snoop`.
+
+### Capabilities
+
+`0x0001` answers with a 16-bit count followed by two-byte `version, feature`
+pairs. The device therefore states which features it implements, which beats
+inferring support from which commands happen to answer.
 
 ### Sound mode
 
