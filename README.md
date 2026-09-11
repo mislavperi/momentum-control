@@ -62,6 +62,24 @@ NDA. The command table above comes from
 [f3Y0/momentum4-control](https://github.com/f3Y0/momentum4-control), confirmed
 here against a real device. Anything beyond it has to be found by probing.
 
+### Learning commands from the official app
+
+The reliable way to learn a command is to watch Sennheiser's own app use it.
+Android logs every HCI packet when *Bluetooth HCI snoop log* is enabled in
+developer options, and `m4snoop` decodes the control frames out of that capture:
+
+```bash
+# on the phone: enable the snoop log, toggle Bluetooth off and on,
+# then exercise every setting in Smart Control, pausing between each
+adb bugreport bt.zip          # btsnoop_hci.log is inside, under FS/data/misc/bluetooth/logs/
+go run ./cmd/m4snoop btsnoop_hci.log
+```
+
+It prints each frame with its direction and timing, then a summary of the
+commands the app sent. Frames are found by scanning for the start-of-frame
+marker and checking the vendor, rather than by reassembling RFCOMM, which is
+enough for frames this small and keeps the tool short.
+
 ### Probing for unknown commands
 
 `m4ctl probe` sweeps a range of command IDs and reports which the device answers.
@@ -153,6 +171,7 @@ serial queue while the main thread stays free to deliver callbacks.
 | `internal/m4` | Client: request/response matching, settings, probing. |
 | `cmd/m4ctl` | Command line interface. |
 | `cmd/momentum4` | Desktop app (Fyne). |
+| `cmd/m4snoop` | Decodes control frames out of an Android HCI snoop log. |
 
 ## Credits
 
