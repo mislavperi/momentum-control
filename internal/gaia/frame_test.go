@@ -105,6 +105,19 @@ func TestScanResyncsAfterGarbage(t *testing.T) {
 	}
 }
 
+func TestIsReplyDistinguishesDeviceInitiatedFrames(t *testing.T) {
+	// A device-initiated frame carrying a command ID must not look like a reply.
+	if (Frame{Command: CmdGetANC}).IsReply() {
+		t.Error("a plain command frame reported itself as a reply")
+	}
+	if !(Frame{Command: CmdGetANC | MaskACK}).IsReply() {
+		t.Error("an ack frame did not report itself as a reply")
+	}
+	if !(Frame{Command: CmdGetANC | MaskError}).IsReply() {
+		t.Error("an error frame did not report itself as a reply")
+	}
+}
+
 func TestReplyClassification(t *testing.T) {
 	ack := Frame{Command: CmdGetANC | MaskACK}
 	if !ack.IsACK(CmdGetANC) || ack.IsError(CmdGetANC) {

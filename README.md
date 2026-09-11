@@ -44,7 +44,9 @@ bytes. The `CHECK` byte is an XOR of the preceding bytes and is only present whe
 bit 0 of `FLAGS` is set.
 
 A reply to command `C` arrives as `C | 0x0100`, or `C | 0x0180` if the device
-rejected it, in which case the first payload byte is a status code. Even command
+rejected it, in which case the first payload byte is a status code. An
+unsolicited notification arrives as `C | 0x0080`, which carries no reply bit, so
+notifications must not be matched against pending requests. Even command
 IDs set a value and the following odd ID reads it back:
 
 | Command  | Meaning          |

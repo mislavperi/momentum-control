@@ -81,6 +81,11 @@ func (f Frame) Status() byte {
 	return f.Payload[0]
 }
 
+// IsReply reports whether the frame is a response to a command, as opposed to
+// one the device sent of its own accord. Replies carry the ACK bit, which the
+// error mask also sets.
+func (f Frame) IsReply() bool { return f.Command&MaskACK != 0 }
+
 // Base strips the ACK/error mask, yielding the command the frame responds to.
 func (f Frame) Base() uint16 { return f.Command &^ MaskError }
 

@@ -125,7 +125,17 @@ func (c *Client) readLoop() {
 }
 
 // dispatch routes a frame to a waiting request, or to the notification stream.
+//
+// A frame only answers a request when it is actually a reply, from the vendor
+// that was asked. Matching on the command ID alone would let a device-initiated
+// frame, or a frame from another vendor that happens to share an ID, be taken
+// for the answer to a pending request.
 func (c *Client) dispatch(f gaia.Frame) {
+	if !f.IsReply() || f.Vendor != gaia.VendorSennheiser {
+		c.notify(f)
+		return
+	}
+
 	base := f.Base()
 
 	c.mu.Lock()
@@ -139,10 +149,15 @@ func (c *Client) dispatch(f gaia.Frame) {
 		waiter <- f
 		return
 	}
+	c.notify(f)
+}
 
+// notify publishes an unsolicited frame, dropping it rather than stalling the
+// reader when nothing is consuming the stream.
+func (c *Client) notify(f gaia.Frame) {
 	select {
 	case c.notifications <- Notification{Command: f.Command, Payload: f.Payload}:
-	default: // drop rather than block the reader
+	default:
 	}
 }
 

@@ -328,6 +328,32 @@ func TestSetEQSendsWritePreampAndCommit(t *testing.T) {
 	}
 }
 
+func TestRequestIgnoresFramesFromAnotherVendor(t *testing.T) {
+	// A frame with the same command ID but a different vendor must not be taken
+	// for the answer.
+	device := newFakeDevice(func(f gaia.Frame) []gaia.Frame {
+		return []gaia.Frame{
+			{
+				Version: gaia.Version3,
+				Vendor:  gaia.VendorQualcomm,
+				Command: f.Command | gaia.MaskACK,
+				Payload: []byte{0xFF},
+			},
+			ack(f.Command, 0x01),
+		}
+	})
+	client := newClient(device)
+	defer client.Close()
+
+	on, err := client.ANC()
+	if err != nil {
+		t.Fatalf("ANC: %v", err)
+	}
+	if !on {
+		t.Error("ANC() took the other vendor's frame as the answer")
+	}
+}
+
 func TestUnsolicitedFrameBecomesNotification(t *testing.T) {
 	device := newFakeDevice(deviceState(1, 40, 0))
 	client := newClient(device)
