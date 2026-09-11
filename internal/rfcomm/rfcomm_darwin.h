@@ -68,6 +68,15 @@ int m4_channel_id(M4Session *s);
 // are paired.
 char *m4_paired_devices(void);
 
+// m4_watch_connections asks IOBluetooth to report when any device connects,
+// delivering each event to m4GoOnDeviceConnected. Registration happens on the
+// main queue, which must be serviced for notifications to arrive.
+//
+// This exists because the control service appears to accept a connection only
+// shortly after the Bluetooth link is established, so the app needs to dial the
+// moment the device appears rather than on a timer.
+void m4_watch_connections(void);
+
 // m4_close closes the channel and releases the session. Passing NULL is a no-op.
 // No further callbacks fire for the session once it is closed.
 void m4_close(M4Session *s);

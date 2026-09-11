@@ -388,6 +388,39 @@ func m4GoOnClose(handle C.uint64_t) {
 	c.cond.Broadcast()
 }
 
+var (
+	connectHookMu sync.Mutex
+	connectHook   func(address string)
+)
+
+// OnDeviceConnected registers fn to be called whenever a Bluetooth device
+// connects, with its address.
+//
+// The control service appears to accept a connection only shortly after the link
+// comes up, so dialling on this event succeeds where polling does not. Passing
+// nil stops the callbacks.
+func OnDeviceConnected(fn func(address string)) {
+	connectHookMu.Lock()
+	connectHook = fn
+	connectHookMu.Unlock()
+
+	C.m4_watch_connections()
+}
+
+//export m4GoOnDeviceConnected
+func m4GoOnDeviceConnected(address *C.char) {
+	addr := C.GoString(address)
+	C.free(unsafe.Pointer(address))
+
+	connectHookMu.Lock()
+	fn := connectHook
+	connectHookMu.Unlock()
+
+	if fn != nil {
+		go fn(addr)
+	}
+}
+
 // Device is a Bluetooth device paired with this Mac.
 type Device struct {
 	Address string

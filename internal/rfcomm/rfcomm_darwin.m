@@ -13,6 +13,7 @@ extern void m4GoOnOpen(uint64_t handle, int status, char *errmsg);
 extern void m4GoOnWrite(uint64_t handle, int status);
 extern void m4GoOnData(uint64_t handle, void *buf, int len);
 extern void m4GoOnClose(uint64_t handle);
+extern void m4GoOnDeviceConnected(char *address);
 
 static const NSTimeInterval kSDPTimeout = 10.0;
 
@@ -94,6 +95,16 @@ static dispatch_queue_t workQueue(void) {
 
 static void onWorkQueue(void (^block)(void)) {
     dispatch_async(workQueue(), block);
+}
+
+// Registration for IOBluetooth notifications belongs on the main thread, since
+// that is where the framework delivers them.
+static void onMainQueue(void (^block)(void)) {
+    if ([NSThread isMainThread]) {
+        block();
+    } else {
+        dispatch_async(dispatch_get_main_queue(), block);
+    }
 }
 
 static char *copyError(NSString *msg) {
@@ -295,6 +306,35 @@ static char *copyError(NSString *msg) {
 }
 
 @end
+
+#pragma mark - Connection notifications
+
+// M4Watcher reports device connections. IOBluetooth delivers these to a selector
+// rather than a block, so it needs an object to hang it on.
+@interface M4Watcher : NSObject
+@end
+
+@implementation M4Watcher
+
+- (void)connected:(IOBluetoothUserNotification *)note fromDevice:(IOBluetoothDevice *)device {
+    debugLog(@"device connected: %@ (%@)", device.addressString, device.name);
+    m4GoOnDeviceConnected(strdup([device.addressString UTF8String]));
+}
+
+@end
+
+void m4_watch_connections(void) {
+    static M4Watcher *watcher;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        watcher = [[M4Watcher alloc] init];
+    });
+
+    onMainQueue(^{
+        [IOBluetoothDevice registerForConnectNotifications:watcher
+                                                  selector:@selector(connected:fromDevice:)];
+    });
+}
 
 #pragma mark - C entry points
 

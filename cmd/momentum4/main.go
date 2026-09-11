@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -49,7 +50,13 @@ func main() {
 	// Dial only once Fyne is pumping the main thread: nothing drains the main
 	// queue before the event loop starts. The headphones grant one control
 	// session at a time, so the connection is then held for the app's lifetime.
-	a.Lifecycle().SetOnStarted(func() { go ui.connectLoop() })
+	a.Lifecycle().SetOnStarted(func() {
+		// Dial the moment the headphones appear: the control service seems to
+		// accept a connection only shortly after the link is established, so
+		// reacting to the event beats polling for it.
+		rfcomm.OnDeviceConnected(func(address string) { go ui.onDeviceConnected(address) })
+		go ui.connectLoop()
+	})
 
 	w.SetCloseIntercept(func() {
 		ui.shutdown()
@@ -98,6 +105,12 @@ type ui struct {
 
 	// attempt identifies the current connect loop, so a newer one supersedes it.
 	attempt int
+
+	// address of the headphones, once found.
+	address string
+
+	// connecting guards against two connect loops running at once.
+	connecting bool
 
 	// quit stops the retry loop when the app is shutting down.
 	quit chan struct{}
@@ -251,9 +264,23 @@ const retryInterval = 30 * time.Second
 // or another attempt supersedes this one.
 func (u *ui) connectLoop() {
 	u.mu.Lock()
+	if u.connecting {
+		// Another loop is already working through the channels. Dialling in
+		// parallel only doubles the failed opens, which this device reacts badly
+		// to.
+		u.mu.Unlock()
+		return
+	}
+	u.connecting = true
 	u.attempt++
 	attempt := u.attempt
 	u.mu.Unlock()
+
+	defer func() {
+		u.mu.Lock()
+		u.connecting = false
+		u.mu.Unlock()
+	}()
 
 	for {
 		if u.connect() {
@@ -276,6 +303,28 @@ func (u *ui) connectLoop() {
 	}
 }
 
+// onDeviceConnected dials immediately when our headphones come back.
+func (u *ui) onDeviceConnected(address string) {
+	u.mu.Lock()
+	connected := u.client != nil
+	want := u.address
+	u.mu.Unlock()
+
+	if connected || !sameAddress(address, want) {
+		return
+	}
+	log.Printf("device %s connected, dialling now", address)
+	u.connectLoop()
+}
+
+// sameAddress compares Bluetooth addresses, which appear with either separator.
+func sameAddress(a, b string) bool {
+	norm := func(s string) string {
+		return strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(s, ":", ""), "-", ""))
+	}
+	return b != "" && norm(a) == norm(b)
+}
+
 // connect makes one attempt, reporting whether it succeeded.
 func (u *ui) connect() bool {
 	u.disconnect()
@@ -286,6 +335,10 @@ func (u *ui) connect() bool {
 		u.setStatus(err.Error(), colorDanger)
 		return false
 	}
+
+	u.mu.Lock()
+	u.address = device.Address
+	u.mu.Unlock()
 
 	fyne.Do(func() {
 		u.deviceName.Text = device.Name
