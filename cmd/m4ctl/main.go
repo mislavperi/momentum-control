@@ -32,6 +32,9 @@ Commands:
   watch                Print setting changes as they happen on the headphones
   probe                Sweep read-only commands to discover unknown features
 
+Pass -wait to any command to keep retrying until the headphones accept a
+connection, rather than failing straight away.
+
 Flags:
 `
 
@@ -43,6 +46,7 @@ func main() {
 		to      = flag.Uint("to", 0x1AFF, "probe: last command ID")
 		timeout = flag.Duration("timeout", 400*time.Millisecond, "probe: per-command timeout")
 		confirm = flag.Bool("i-understand-the-risk", false, "probe: required acknowledgement, see below")
+		wait    = flag.Bool("wait", false, "keep retrying the connection until the device accepts one")
 	)
 	flag.Usage = func() {
 		fmt.Fprint(os.Stderr, usage)
@@ -61,6 +65,7 @@ func main() {
 			to:      uint16(*to),
 			timeout: *timeout,
 			confirm: *confirm,
+			wait:    *wait,
 		}); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			code = 1
@@ -76,6 +81,7 @@ type options struct {
 	to      uint16
 	timeout time.Duration
 	confirm bool
+	wait    bool
 }
 
 func run(args []string, opt options) error {
@@ -153,12 +159,40 @@ func connect(opt options) (*m4.Client, error) {
 		fmt.Printf("Using %s (%s)\n", device.Name, device.Address)
 	}
 
-	client, err := m4.Connect(addr, rfcomm.Options{Channel: opt.channel})
-	if err != nil {
-		return nil, err
+	if !opt.wait {
+		return m4.Connect(addr, rfcomm.Options{Channel: opt.channel})
 	}
-	return client, nil
+
+	// The headphones refuse a control connection for long, unpredictable
+	// stretches. Waiting lets a probe be started now and left alone: it connects
+	// whenever the device relents. The interval is deliberately unhurried, since
+	// repeated failed opens appear to make the device less willing, not more.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	fmt.Printf("Waiting for the headphones to accept a control connection (Ctrl-C to stop)...\n")
+
+	for attempt := 1; ; attempt++ {
+		client, err := m4.Connect(addr, rfcomm.Options{Channel: opt.channel})
+		if err == nil {
+			fmt.Printf("Connected after %d attempt(s) on RFCOMM channel %d.\n",
+				attempt, client.ChannelID())
+			return client, nil
+		}
+
+		fmt.Printf("%s  attempt %d: still refused\n", time.Now().Format("15:04:05"), attempt)
+
+		select {
+		case <-time.After(waitInterval):
+		case <-ctx.Done():
+			return nil, fmt.Errorf("gave up waiting after %d attempts", attempt)
+		}
+	}
 }
+
+// waitInterval paces -wait. Slow on purpose: hammering the device with failed
+// opens seems to make matters worse.
+const waitInterval = 60 * time.Second
 
 func listDevices() error {
 	devices := rfcomm.PairedDevices()
