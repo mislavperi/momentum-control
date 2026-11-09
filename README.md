@@ -69,6 +69,8 @@ IDs set a value and the following odd ID reads it back:
 | `0x1401` | Get paired hosts (multipoint) |
 | `0x1606` / `0x1607` | An unidentified on/off setting |
 | `0x1A04` / `0x1A05` | Set / get ANC |
+| `0x1804` / `0x1805` / `0x1885` | Set / get / notify Transparent Hearing (what audibly lets the outside in) |
+| `0x1800` / `0x1801` | Set / get what Transparent Hearing does to playback: 0 keep playing, 1 pause |
 
 Everything below the first three rows was recovered from an HCI capture of
 Sennheiser's own app; see `cmd/m4snoop`.
@@ -114,6 +116,12 @@ band, with the high nibble selecting band 1-4:
 | `0xN1` | centre frequency, Hz | 360, 1200, 9000, 18000 |
 | `0xN2` | gain, signed, hundredths of a dB | `0xFED4` is -3.00 dB |
 | `0xN3` | Q factor | `0x0B50` |
+
+Reads answer only for the gain fields: a query naming type, frequency or Q goes
+unanswered. So a configuration read back carries gains alone, and the rest of
+each band is filled from the layout above before writing; writing the read as-is
+would zero every band's frequency and filter, which the device acknowledges and
+renders as no audible EQ.
 
 A write is three commands in order: `0x1002` with the bands, `0x1006` with the
 matching preamp, then `0x1004` to commit. Without the commit the change is

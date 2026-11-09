@@ -27,7 +27,8 @@ Commands:
   devices              List paired Bluetooth devices
   status               Show the current settings
   anc on|off           Turn active noise cancellation on or off
-  transparency <0-100> Set the transparency level
+  transparency <0-100> Set the noise cancelling level, 0 max ANC to 100 transparent
+  hearing on|off       Turn Transparent Hearing (ambient sound) on or off
   bass on|off          Turn the bass boost preset on or off
   watch                Print setting changes as they happen on the headphones
   probe                Sweep read-only commands to discover unknown features
@@ -109,6 +110,15 @@ func run(args []string, opt options) error {
 			return err
 		}
 		if err := client.SetANC(on); err != nil {
+			return err
+		}
+		return showStatus(client)
+	case "hearing":
+		on, err := parseOnOff(args, "hearing")
+		if err != nil {
+			return err
+		}
+		if err := client.SetTransparentHearing(on); err != nil {
 			return err
 		}
 		return showStatus(client)
@@ -213,6 +223,7 @@ func showStatus(client *m4.Client) error {
 	fmt.Printf("RFCOMM channel: %d\n", state.ChannelID)
 	fmt.Printf("ANC:            %s\n", onOff(state.ANC))
 	fmt.Printf("Transparency:   %d%%\n", state.Transparency)
+	fmt.Printf("Hearing:        %s\n", onOff(state.TransparentHearing))
 	fmt.Printf("Bass boost:     %s\n", onOff(state.BassBoost))
 	return nil
 }

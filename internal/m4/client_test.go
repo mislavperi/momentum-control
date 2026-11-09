@@ -461,3 +461,35 @@ func TestVerifyAcceptsControlService(t *testing.T) {
 		t.Fatalf("verify() rejected the control service: %v", err)
 	}
 }
+
+func TestTransparentHearingRoundTrip(t *testing.T) {
+	var hearing byte
+	device := newFakeDevice(func(f gaia.Frame) []gaia.Frame {
+		switch f.Command {
+		case gaia.CmdSetTransparentHearing:
+			hearing = f.Payload[0]
+			return []gaia.Frame{ack(f.Command)}
+		case gaia.CmdGetTransparentHearing:
+			return []gaia.Frame{ack(f.Command, hearing)}
+		}
+		return []gaia.Frame{{
+			Version: gaia.Version3,
+			Vendor:  gaia.VendorSennheiser,
+			Command: f.Command | gaia.MaskError,
+			Payload: []byte{0x01},
+		}}
+	})
+	client := newClient(device)
+	defer client.Close()
+
+	if err := client.SetTransparentHearing(true); err != nil {
+		t.Fatalf("SetTransparentHearing: %v", err)
+	}
+	state, err := client.State()
+	if err != nil {
+		t.Fatalf("State: %v", err)
+	}
+	if !state.TransparentHearing || !state.Has(gaia.CmdGetTransparentHearing) {
+		t.Errorf("State() = %+v, want Transparent Hearing reported and on", state)
+	}
+}

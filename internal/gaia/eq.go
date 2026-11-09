@@ -66,6 +66,41 @@ type EQ struct {
 	Bands [EQBands]EQBand
 }
 
+// DefaultEQ is the band layout the official app writes, from an HCI capture:
+// every band a type 0x000B filter with Q 0x0B50, centred on 360 Hz, 1.2 kHz,
+// 9 kHz and 18 kHz, at 0 dB.
+//
+// The device answers an equalizer read only for the gain fields; a query for
+// type, frequency or Q goes unanswered. A configuration read back therefore
+// carries gains alone, and writing it as-is would zero every band's frequency
+// and filter. Callers fill the gaps from this layout before writing.
+func DefaultEQ() EQ {
+	var eq EQ
+	for i, hz := range [EQBands]uint16{360, 1200, 9000, 18000} {
+		eq.Bands[i] = EQBand{Type: 0x000B, Frequency: hz, Q: 0x0B50}
+	}
+	return eq
+}
+
+// WithDefaults returns eq with any band field the device did not report taken
+// from DefaultEQ.
+func (eq EQ) WithDefaults() EQ {
+	def := DefaultEQ()
+	for i := range eq.Bands {
+		b := &eq.Bands[i]
+		if b.Type == 0 {
+			b.Type = def.Bands[i].Type
+		}
+		if b.Frequency == 0 {
+			b.Frequency = def.Bands[i].Frequency
+		}
+		if b.Q == 0 {
+			b.Q = def.Bands[i].Q
+		}
+	}
+	return eq
+}
+
 // bandEntryID builds the entry ID for a band's field. Bands are numbered from 1.
 func bandEntryID(band int, field byte) byte {
 	return byte(band)<<4 | field

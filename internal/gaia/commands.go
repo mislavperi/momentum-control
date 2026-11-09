@@ -24,6 +24,21 @@ const (
 	CmdSetANC uint16 = 0x1A04
 	CmdGetANC uint16 = 0x1A05
 
+	// Transparent Hearing lets the outside world in through the microphones.
+	// It is a separate switch from ANC and from the transparency level, and it
+	// is what makes ambient sound clearly audible: raising the level alone
+	// barely changes what you hear. Named TransparentHearing_Status in
+	// Sennheiser's own m4.json, and confirmed by ear against hardware.
+	CmdSetTransparentHearing uint16 = 0x1804
+	CmdGetTransparentHearing uint16 = 0x1805
+	NotifyTransparentHearing uint16 = 0x1885
+
+	// What Transparent Hearing does to playback: 0 keeps music playing, 1
+	// pauses it. TransparentHearing_Mode in m4.json; the device this was
+	// developed against reported 1, which is why Ambient stopped the music.
+	CmdSetHearingBehaviour uint16 = 0x1800
+	CmdGetHearingBehaviour uint16 = 0x1801
+
 	// Recovered by watching Sennheiser's own app, see cmd/m4snoop.
 
 	// Sound mode, carrying the keys below rather than a single value.
@@ -111,31 +126,36 @@ func CommandName(cmd uint16) string {
 }
 
 var commandNames = map[uint16]string{
-	CmdRegisterNotification: "RegisterNotification",
-	CmdSetBassBoost:         "SetBassBoost",
-	CmdGetBassBoost:         "GetBassBoost",
-	CmdSetTransparency:      "SetTransparency",
-	CmdGetTransparency:      "GetTransparency",
-	CmdSetANC:               "SetANC",
-	CmdGetANC:               "GetANC",
-	CmdSetSoundMode:         "SetSoundMode",
-	CmdGetSoundMode:         "GetSoundMode",
-	NotifySoundMode:         "SoundModeChanged",
-	NotifyTransparency:      "TransparencyChanged",
-	CmdGetBattery:           "GetBattery",
-	NotifyBattery:           "BatteryChanged",
-	CmdGetChargeState:       "GetChargeState",
-	NotifyChargeState:       "ChargeStateChanged",
-	CmdGetDeviceName:        "GetDeviceName",
-	CmdGetFirmware:          "GetFirmware",
-	CmdGetSystemVersion:     "GetSystemVersion",
-	CmdGetHardware:          "GetHardware",
-	CmdGetCodec:             "GetCodec",
-	CmdGetCapabilities:      "GetCapabilities",
-	CmdSetEQ:                "SetEQ",
-	CmdGetEQ:                "GetEQ",
-	CmdCommitEQ:             "CommitEQ",
-	CmdSetPreamp:            "SetPreamp",
+	CmdRegisterNotification:  "RegisterNotification",
+	CmdSetBassBoost:          "SetBassBoost",
+	CmdGetBassBoost:          "GetBassBoost",
+	CmdSetTransparency:       "SetTransparency",
+	CmdGetTransparency:       "GetTransparency",
+	CmdSetANC:                "SetANC",
+	CmdGetANC:                "GetANC",
+	CmdSetTransparentHearing: "SetTransparentHearing",
+	CmdGetTransparentHearing: "GetTransparentHearing",
+	NotifyTransparentHearing: "TransparentHearingChanged",
+	CmdSetHearingBehaviour:   "SetHearingBehaviour",
+	CmdGetHearingBehaviour:   "GetHearingBehaviour",
+	CmdSetSoundMode:          "SetSoundMode",
+	CmdGetSoundMode:          "GetSoundMode",
+	NotifySoundMode:          "SoundModeChanged",
+	NotifyTransparency:       "TransparencyChanged",
+	CmdGetBattery:            "GetBattery",
+	NotifyBattery:            "BatteryChanged",
+	CmdGetChargeState:        "GetChargeState",
+	NotifyChargeState:        "ChargeStateChanged",
+	CmdGetDeviceName:         "GetDeviceName",
+	CmdGetFirmware:           "GetFirmware",
+	CmdGetSystemVersion:      "GetSystemVersion",
+	CmdGetHardware:           "GetHardware",
+	CmdGetCodec:              "GetCodec",
+	CmdGetCapabilities:       "GetCapabilities",
+	CmdSetEQ:                 "SetEQ",
+	CmdGetEQ:                 "GetEQ",
+	CmdCommitEQ:              "CommitEQ",
+	CmdSetPreamp:             "SetPreamp",
 }
 
 // IsGetter reports whether cmd follows the device's read-only (odd ID)

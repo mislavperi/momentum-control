@@ -20,11 +20,15 @@ import (
 type State struct {
 	ANC          bool
 	Transparency int // 0..100, higher lets more of the outside world in
-	BassBoost    bool
-	Battery      int // charge level as a percentage
-	AncModes     AncModes
-	EQ           gaia.EQ
-	ChannelID    int
+	// TransparentHearing is the switch that actually pipes the outside world in.
+	TransparentHearing bool
+	// HearingPausesMusic is whether turning Transparent Hearing on pauses playback.
+	HearingPausesMusic bool
+	BassBoost          bool
+	Battery            int // charge level as a percentage
+	AncModes           AncModes
+	EQ                 gaia.EQ
+	ChannelID          int
 
 	// Supported holds the get-commands the device answered.
 	Supported map[uint16]bool
@@ -63,6 +67,28 @@ func (c *Client) Transparency() (int, error) {
 // clamped rather than rejected, so a UI slider can pass its raw value.
 func (c *Client) SetTransparency(level int) error {
 	_, err := c.requestTimeout(gaia.CmdSetTransparency, byte(clamp(level, 0, 100)))
+	return err
+}
+
+// TransparentHearing reports whether Transparent Hearing is on.
+func (c *Client) TransparentHearing() (bool, error) {
+	f, err := c.requestTimeout(gaia.CmdGetTransparentHearing)
+	if err != nil {
+		return false, err
+	}
+	return payloadBool(f, gaia.CmdGetTransparentHearing)
+}
+
+// SetTransparentHearing turns Transparent Hearing on or off.
+func (c *Client) SetTransparentHearing(on bool) error {
+	_, err := c.requestTimeout(gaia.CmdSetTransparentHearing, boolByte(on))
+	return err
+}
+
+// SetHearingPausesMusic chooses whether turning Transparent Hearing on pauses
+// playback (true) or lets music keep playing underneath (false).
+func (c *Client) SetHearingPausesMusic(pause bool) error {
+	_, err := c.requestTimeout(gaia.CmdSetHearingBehaviour, boolByte(pause))
 	return err
 }
 
@@ -111,6 +137,12 @@ func (c *Client) State() (State, error) {
 		return s, err
 	}
 	if err := read(gaia.CmdGetTransparency, func(b byte) { s.Transparency = int(b) }); err != nil {
+		return s, err
+	}
+	if err := read(gaia.CmdGetTransparentHearing, func(b byte) { s.TransparentHearing = b != 0 }); err != nil {
+		return s, err
+	}
+	if err := read(gaia.CmdGetHearingBehaviour, func(b byte) { s.HearingPausesMusic = b != 0 }); err != nil {
 		return s, err
 	}
 	if err := read(gaia.CmdGetBassBoost, func(b byte) { s.BassBoost = b != 0 }); err != nil {
@@ -370,7 +402,12 @@ func (c *Client) eq(timeout time.Duration) (gaia.EQ, error) {
 	if err != nil {
 		return gaia.EQ{}, err
 	}
-	return gaia.DecodeEQ(f.Payload)
+	eq, err := gaia.DecodeEQ(f.Payload)
+	if err != nil {
+		return eq, err
+	}
+	// Only gains come back; the rest of each band is the fixed layout.
+	return eq.WithDefaults(), nil
 }
 
 // SetEQ writes the equalizer configuration.

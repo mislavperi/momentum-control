@@ -118,3 +118,14 @@ func TestEncodeEQQueryAsksForEveryBand(t *testing.T) {
 		t.Errorf("EncodeEQQuery() = % x, want % x", got, want)
 	}
 }
+
+func TestGainsOnlyReadWithDefaultsEncodesLikeTheApp(t *testing.T) {
+	// What the device returns for a gain query at 0 dB: preamp and gains only.
+	read, err := DecodeEQ(mustDecodeHex(t, "0005"+"01010000"+"01120000"+"01220000"+"01320000"+"01420000"))
+	if err != nil {
+		t.Fatalf("DecodeEQ: %v", err)
+	}
+	if got, want := EncodeEQ(read.WithDefaults()), mustDecodeHex(t, captured); !bytes.Equal(got, want) {
+		t.Errorf("gains-only read did not encode like the app:\n got % x\nwant % x", got, want)
+	}
+}
