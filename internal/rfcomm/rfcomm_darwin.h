@@ -6,10 +6,11 @@
 // main queue.
 //
 // That shapes this whole interface. The process main thread must run a Cocoa run
-// loop (m4_run_main_loop) or no callback is ever delivered. And because the
-// callbacks land on the main queue, the framework's *Sync calls cannot be used
-// from the main thread: they would wait for a completion queued behind the
-// caller. Everything here is therefore asynchronous, reporting results through
+// loop (m4_run_main_loop) or no callback is ever delivered. Every IOBluetooth
+// call is made on the main thread too: the framework is not thread-safe, and
+// opening channels from a background queue made the headset refuse them. Since
+// the main thread must stay free to deliver completions, the open is
+// asynchronous, and every entry point here returns at once and reports through
 // the m4GoOn* callbacks implemented in Go.
 
 #ifndef M4_RFCOMM_DARWIN_H
@@ -67,6 +68,10 @@ int m4_channel_id(M4Session *s);
 // "address\tname" lines, which the caller must free. Returns NULL if no devices
 // are paired.
 char *m4_paired_devices(void);
+
+// m4_device_connected reports whether macOS currently holds a Bluetooth link to
+// the device at addr ("xx-xx-xx-xx-xx-xx"). Returns 0 for an unknown device.
+int m4_device_connected(const char *addr);
 
 // m4_watch_connections asks IOBluetooth to report when any device connects,
 // delivering each event to m4GoOnDeviceConnected. Registration happens on the

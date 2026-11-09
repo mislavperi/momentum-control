@@ -179,8 +179,12 @@ What did **not** make a difference, each tried repeatedly:
   IOBluetooth's connect notification, and four such dials were refused
 
 While the control channel is refused, the Airoha/RACE service on another channel
-still opens and streams data, so the Bluetooth link itself is healthy. The cause
-is not understood. If you find the trigger, it belongs in this section.
+still opens and streams data, so the Bluetooth link itself is healthy. The likely
+cause is threading: the channel used to be opened from a background dispatch
+queue with `openRFCOMMChannelSync`. It is now opened from the main thread with
+`openRFCOMMChannelAsync`, as another working macOS implementation does (see the
+macOS traps below). If refusals persist after that change, record what you see
+here.
 
 The app is built around this rather than against it: it retries in the background
 every 30 seconds and connects as soon as the device allows, so the flakiness
@@ -230,10 +234,14 @@ opens and writes succeed while not a single byte is ever delivered back. Hence
 `rfcomm.Main`, which hands the main thread to `CFRunLoopRun` and runs the program
 on a goroutine. A GUI toolkit that owns the main thread satisfies this by itself.
 
-Those two combine into a third trap: the blocking `*Sync` IOBluetooth calls
-cannot be made *from* the main thread, because the completion they wait for is
-queued behind them on the main queue. So the sync calls run on a background
-serial queue while the main thread stays free to deliver callbacks.
+Those two combine into a third trap: IOBluetooth must also be *called* from the
+main thread. It is not thread-safe, and opening the channel from a background
+queue with `openRFCOMMChannelSync` made the headset refuse almost every open with
+`kIOReturnError` (`0xe00002bc`) while letting the odd one through. So every call
+is posted to the main queue, the SDP query and the channel open are the
+asynchronous variants, and their results arrive in delegate callbacks; nothing
+on the main thread waits for a completion it is itself responsible for
+delivering.
 
 ## Layout
 

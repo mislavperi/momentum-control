@@ -15,7 +15,6 @@ extern void m4GoOnData(uint64_t handle, void *buf, int len);
 extern void m4GoOnClose(uint64_t handle);
 extern void m4GoOnDeviceConnected(char *address);
 
-static const NSTimeInterval kSDPTimeout = 10.0;
 
 #pragma mark - Debug tracing
 
@@ -80,25 +79,12 @@ int m4_main_queue_alive(int timeout_ms) {
     return dispatch_semaphore_wait(ran, deadline) == 0 ? 1 : 0;
 }
 
-// IOBluetooth's blocking *Sync calls are the ones that actually work, but they
-// cannot run on the main thread: their completion is delivered on the main queue,
-// so they would be waiting on themselves. They run here instead, on one serial
-// background queue, leaving the main run loop free to deliver callbacks.
-static dispatch_queue_t workQueue(void) {
-    static dispatch_queue_t queue;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        queue = dispatch_queue_create("com.momentum4.bluetooth", DISPATCH_QUEUE_SERIAL);
-    });
-    return queue;
-}
-
-static void onWorkQueue(void (^block)(void)) {
-    dispatch_async(workQueue(), block);
-}
-
-// Registration for IOBluetooth notifications belongs on the main thread, since
-// that is where the framework delivers them.
+// Every IOBluetooth call is made on the main thread. The framework is not
+// thread-safe and ties delegate delivery to the main run loop; driving it from a
+// background queue made the headset refuse RFCOMM opens with kIOReturnError
+// (0xe00002bc) most of the time while occasionally letting one through. Because
+// the main thread also delivers the completions, nothing here may block waiting
+// for one: opens are asynchronous and finish in the delegate callbacks.
 static void onMainQueue(void (^block)(void)) {
     if ([NSThread isMainThread]) {
         block();
@@ -118,13 +104,33 @@ static char *copyError(NSString *msg) {
 
 @interface M4Channel : NSObject <IOBluetoothRFCOMMChannelDelegate>
 @property(nonatomic, strong) IOBluetoothRFCOMMChannel *channel;
+// Held for the life of the session so the device outlives an asynchronous open.
+@property(nonatomic, strong) IOBluetoothDevice *device;
 @property(nonatomic, assign) uint64_t handle;
 @property(nonatomic, assign) BluetoothRFCOMMChannelID channelID;
-@property(nonatomic, strong) dispatch_semaphore_t sdpSignal;
-@property(nonatomic, assign) IOReturn sdpStatus;
+@property(nonatomic, strong) IOBluetoothSDPUUID *serviceUUID;
 @property(nonatomic, assign) BOOL closed;
 @property(nonatomic, assign) BOOL openReported;
+@property(nonatomic, assign) BOOL opened;
+@property(nonatomic, assign) BOOL shutDown;
+// Self-reference held while an SDP query is in flight. IOBluetooth does not
+// retain the query's target, so without this a close during the query would free
+// the object before sdpQueryComplete:status: is sent to it.
+@property(nonatomic, strong) M4Channel *pendingQuery;
 @end
+
+// deviceForAddress prefers the instance macOS already holds for a paired device
+// over building a fresh one from an address string.
+static IOBluetoothDevice *deviceForAddress(NSString *addr) {
+    NSString *wanted = [[addr stringByReplacingOccurrencesOfString:@":" withString:@"-"] lowercaseString];
+
+    for (IOBluetoothDevice *device in [IOBluetoothDevice pairedDevices]) {
+        if ([[device.addressString lowercaseString] isEqualToString:wanted]) {
+            return device;
+        }
+    }
+    return [IOBluetoothDevice deviceWithAddressString:addr];
+}
 
 @implementation M4Channel
 
@@ -139,53 +145,19 @@ static char *copyError(NSString *msg) {
     m4GoOnOpen(self.handle, (int)status, status == kIOReturnSuccess ? NULL : copyError(msg));
 }
 
-// Resolves the RFCOMM channel number advertised for the given service UUID,
-// running an SDP query first if macOS has not cached the record.
-- (BOOL)resolveChannelOn:(IOBluetoothDevice *)device
-                    uuid:(IOBluetoothSDPUUID *)uuid
-                   error:(NSString **)errOut {
-    IOBluetoothSDPServiceRecord *record = [device getServiceRecordForUUID:uuid];
-
-    if (record == nil) {
-        self.sdpSignal = dispatch_semaphore_create(0);
-        IOReturn status = [device performSDPQuery:self];
-        if (status != kIOReturnSuccess) {
-            *errOut = [NSString stringWithFormat:@"SDP query failed to start (0x%08x)", status];
-            return NO;
-        }
-        // The completion arrives on the main queue; this runs on the work queue,
-        // so waiting on a semaphore here does not block its delivery.
-        dispatch_time_t deadline = dispatch_time(DISPATCH_TIME_NOW,
-                                                 (int64_t)(kSDPTimeout * NSEC_PER_SEC));
-        if (dispatch_semaphore_wait(self.sdpSignal, deadline) != 0) {
-            *errOut = @"SDP query timed out; is the headset connected?";
-            return NO;
-        }
-        if (self.sdpStatus != kIOReturnSuccess) {
-            *errOut = [NSString stringWithFormat:@"SDP query failed (0x%08x)", self.sdpStatus];
-            return NO;
-        }
-        record = [device getServiceRecordForUUID:uuid];
-    }
-
-    if (record == nil) {
-        *errOut = @"device does not advertise the requested service";
-        return NO;
-    }
-
-    BluetoothRFCOMMChannelID channelID = 0;
-    IOReturn status = [record getRFCOMMChannelID:&channelID];
-    if (status != kIOReturnSuccess || channelID == 0) {
-        *errOut = @"service record carries no RFCOMM channel ID";
-        return NO;
-    }
-    self.channelID = channelID;
-    debugLog(@"resolved service '%@' to channel %d", [record getServiceName], channelID);
-    return YES;
-}
-
+// openDevice starts the connection. When the service record is already cached
+// the channel is opened straight away; otherwise an SDP query runs first and the
+// open continues from sdpQueryComplete:.
+//
+// Runs on the main thread and never blocks: the completions it depends on are
+// delivered on that same thread.
 - (void)openDevice:(NSString *)addr uuid:(IOBluetoothSDPUUID *)uuid forced:(int)forced {
-    IOBluetoothDevice *device = [IOBluetoothDevice deviceWithAddressString:addr];
+    if (self.closed) {
+        return;
+    }
+    IOBluetoothDevice *device = deviceForAddress(addr);
+    self.device = device;
+
     if (device == nil) {
         [self reportOpen:kIOReturnNoDevice
                  message:[NSString stringWithFormat:@"no Bluetooth device at address %@", addr]];
@@ -197,31 +169,76 @@ static char *copyError(NSString *msg) {
 
     if (forced > 0) {
         self.channelID = (BluetoothRFCOMMChannelID)forced;
-    } else {
-        NSString *err = nil;
-        if (![self resolveChannelOn:device uuid:uuid error:&err]) {
-            [self reportOpen:kIOReturnNotFound message:err];
-            return;
-        }
+        [self openChannelOn:device];
+        return;
     }
 
+    if (uuid == nil) {
+        [self reportOpen:kIOReturnBadArgument message:@"no service UUID and no channel given"];
+        return;
+    }
+    self.serviceUUID = uuid;
+
+    if ([device getServiceRecordForUUID:uuid] != nil) {
+        [self openResolvedChannelOn:device];
+        return;
+    }
+
+    self.pendingQuery = self;
+    IOReturn status = [device performSDPQuery:self uuids:@[uuid]];
+    if (status != kIOReturnSuccess) {
+        self.pendingQuery = nil;
+        [self reportOpen:status
+                 message:[NSString stringWithFormat:@"SDP query failed to start (0x%08x)", status]];
+    }
+}
+
+// openResolvedChannelOn reads the channel number out of the cached service
+// record and opens it.
+- (void)openResolvedChannelOn:(IOBluetoothDevice *)device {
+    IOBluetoothSDPServiceRecord *record = [device getServiceRecordForUUID:self.serviceUUID];
+    if (record == nil) {
+        [self reportOpen:kIOReturnNotFound
+                 message:@"device does not advertise the requested service"];
+        return;
+    }
+
+    BluetoothRFCOMMChannelID channelID = 0;
+    IOReturn status = [record getRFCOMMChannelID:&channelID];
+    if (status != kIOReturnSuccess || channelID == 0) {
+        [self reportOpen:kIOReturnNotFound
+                 message:@"service record carries no RFCOMM channel ID"];
+        return;
+    }
+
+    self.channelID = channelID;
+    debugLog(@"resolved service '%@' to channel %d", [record getServiceName], channelID);
+    [self openChannelOn:device];
+}
+
+// openChannelOn starts the RFCOMM open. The result arrives in
+// rfcommChannelOpenComplete:status:.
+- (void)openChannelOn:(IOBluetoothDevice *)device {
+    if (self.closed) {
+        return;
+    }
     IOBluetoothRFCOMMChannel *channel = nil;
-    IOReturn status = [device openRFCOMMChannelSync:&channel
-                                      withChannelID:self.channelID
-                                           delegate:self];
-    if (status != kIOReturnSuccess || channel == nil) {
+    IOReturn status = [device openRFCOMMChannelAsync:&channel
+                                       withChannelID:self.channelID
+                                            delegate:self];
+    if (status != kIOReturnSuccess) {
         [self reportOpen:status
                  message:[NSString stringWithFormat:@"could not open RFCOMM channel %d (0x%08x)",
                                                     self.channelID, status]];
         return;
     }
+    // Kept now so a close during the open can still tear the channel down.
     self.channel = channel;
-    debugLog(@"channel %d open, mtu %d", self.channelID, [channel getMTU]);
-    [self reportOpen:kIOReturnSuccess message:nil];
+    debugLog(@"opening channel %d", self.channelID);
 }
 
 - (void)writeData:(NSData *)data {
-    if (self.closed || self.channel == nil) {
+    if (self.closed || self.channel == nil || !self.opened) {
         m4GoOnWrite(self.handle, kIOReturnNotOpen);
         return;
     }
@@ -252,12 +269,16 @@ static char *copyError(NSString *msg) {
 }
 
 - (void)shutdown {
-    if (self.closed) {
+    // Not keyed on closed: after the device closes the channel, the delegate
+    // still has to be cleared here before this object goes away.
+    if (self.shutDown) {
         return;
     }
+    self.shutDown = YES;
     self.closed = YES;
     IOBluetoothRFCOMMChannel *channel = self.channel;
     self.channel = nil;
+    self.device = nil;
     // Drop the delegate first so no callback reaches Go after close returns.
     [channel setDelegate:nil];
     [channel closeChannel];
@@ -266,22 +287,37 @@ static char *copyError(NSString *msg) {
 #pragma mark IOBluetoothDevice SDP delegate
 
 - (void)sdpQueryComplete:(IOBluetoothDevice *)device status:(IOReturn)status {
-    self.sdpStatus = status;
-    if (self.sdpSignal != nil) {
-        dispatch_semaphore_signal(self.sdpSignal);
+    // Released at the end of this call, once nothing below still needs self.
+    M4Channel *keepAlive = self.pendingQuery;
+    self.pendingQuery = nil;
+    (void)keepAlive;
+    if (self.closed) {
+        return;
     }
+    if (status != kIOReturnSuccess) {
+        [self reportOpen:status
+                 message:[NSString stringWithFormat:@"SDP query failed (0x%08x)", status]];
+        return;
+    }
+    [self openResolvedChannelOn:device];
 }
 
 #pragma mark IOBluetoothRFCOMMChannel delegate
 
 - (void)rfcommChannelOpenComplete:(IOBluetoothRFCOMMChannel *)channel status:(IOReturn)status {
-    // openRFCOMMChannelSync already reported the result; this only matters if it
-    // failed after returning, and reportOpen ignores the duplicate otherwise.
+    if (self.closed) {
+        return;
+    }
     if (status != kIOReturnSuccess) {
         [self reportOpen:status
                  message:[NSString stringWithFormat:@"RFCOMM channel %d refused the connection (0x%08x)",
                                                     self.channelID, status]];
+        return;
     }
+    self.channel = channel;
+    self.opened = YES;
+    debugLog(@"channel %d open, mtu %d", self.channelID, [channel getMTU]);
+    [self reportOpen:kIOReturnSuccess message:nil];
 }
 
 - (void)rfcommChannelData:(IOBluetoothRFCOMMChannel *)channel
@@ -368,7 +404,7 @@ void m4_session_open(M4Session *s, const char *addr, const uint8_t *uuid, int fo
             serviceUUID = [IOBluetoothSDPUUID uuidWithBytes:uuid length:16];
         }
 
-        onWorkQueue(^{
+        onMainQueue(^{
             [chan openDevice:address uuid:serviceUUID forced:forced_channel];
         });
     }
@@ -381,7 +417,7 @@ void m4_session_write(M4Session *s, const void *buf, int len) {
         }
         M4Channel *chan = (__bridge M4Channel *)s->channel;
         NSData *data = [NSData dataWithBytes:buf length:(NSUInteger)len];
-        onWorkQueue(^{
+        onMainQueue(^{
             [chan writeData:data];
         });
     }
@@ -393,6 +429,16 @@ int m4_channel_id(M4Session *s) {
     }
     M4Channel *chan = (__bridge M4Channel *)s->channel;
     return (int)chan.channelID;
+}
+
+int m4_device_connected(const char *addr) {
+    @autoreleasepool {
+        if (addr == NULL) {
+            return 0;
+        }
+        IOBluetoothDevice *device = deviceForAddress([NSString stringWithUTF8String:addr]);
+        return device != nil && device.isConnected ? 1 : 0;
+    }
 }
 
 char *m4_paired_devices(void) {
@@ -417,7 +463,7 @@ void m4_close(M4Session *s) {
         }
         M4Channel *chan = (__bridge_transfer M4Channel *)s->channel;
         s->channel = NULL;
-        onWorkQueue(^{
+        onMainQueue(^{
             [chan shutdown];
         });
         free(s);

@@ -188,6 +188,11 @@ func Dial(addr string, opts Options) (*Conn, error) {
 
 	case <-time.After(budget):
 		c.Close()
+		// An open to a device with no link spends its whole budget paging it, so
+		// say so rather than leave a bare timeout.
+		if C.m4_device_connected(cAddr) == 0 {
+			return nil, fmt.Errorf("rfcomm: dial %s: timed out after %s; the device is not connected to this Mac, so check it is on and connected in Bluetooth settings", addr, budget)
+		}
 		return nil, fmt.Errorf("rfcomm: dial %s: timed out after %s", addr, budget)
 	}
 }
@@ -256,21 +261,21 @@ func (c *Conn) Write(b []byte) (int, error) {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 
-	c.mu.Lock()
-	if c.closed || c.session == nil {
-		c.mu.Unlock()
-		return 0, ErrClosed
-	}
-	session := c.session
-	c.mu.Unlock()
-
 	// Discard any completion left behind by an abandoned write.
 	select {
 	case <-c.writeCh:
 	default:
 	}
 
-	C.m4_session_write(session, unsafe.Pointer(&b[0]), C.int(len(b)))
+	// c.mu is held across the call so a concurrent Close cannot free the session
+	// under it. m4_session_write only queues the write, so this does not block.
+	c.mu.Lock()
+	if c.closed || c.session == nil {
+		c.mu.Unlock()
+		return 0, ErrClosed
+	}
+	C.m4_session_write(c.session, unsafe.Pointer(&b[0]), C.int(len(b)))
+	c.mu.Unlock()
 
 	select {
 	case err := <-c.writeCh:
