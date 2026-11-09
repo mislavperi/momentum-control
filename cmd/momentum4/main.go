@@ -17,6 +17,7 @@ func main() {
 	// Fyne owns the main thread and pumps the main queue there, which is what
 	// IOBluetooth needs to deliver its callbacks. No rfcomm.Main here.
 	a := app.NewWithID("com.momentum4.control")
+	a.SetIcon(appIcon) // window and taskbar icon on Linux and Windows
 	a.Settings().SetTheme(newPanelTheme())
 
 	w := a.NewWindow("MOMENTUM 4")

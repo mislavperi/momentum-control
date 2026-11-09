@@ -68,3 +68,12 @@ func hexColor(c color.Color) string {
 var headphonesPNG []byte
 
 var headphonesArt = fyne.NewStaticResource("headphones.png", headphonesPNG)
+
+// appIcon is the app icon: the headphones on a rounded violet tile. The
+// sidebar logo and the window icon use it; build/AppIcon.icns is the same
+// image for the macOS bundle.
+//
+//go:embed assets/appicon.png
+var appIconPNG []byte
+
+var appIcon = fyne.NewStaticResource("appicon.png", appIconPNG)

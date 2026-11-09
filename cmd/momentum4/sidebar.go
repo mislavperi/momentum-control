@@ -10,9 +10,8 @@ import (
 )
 
 func (u *ui) buildSidebar() fyne.CanvasObject {
-	logoBg := canvas.NewRectangle(colorAccent)
-	logoBg.CornerRadius = 12
-	logo := fixed(container.NewStack(logoBg, container.NewCenter(iconImage(headphonesArt, 38))), 46, 46)
+	// The icon carries Apple's transparent margin, so 56 px draws a ~46 px tile.
+	logo := fixed(iconImage(appIcon, 56), 56, 56)
 	brand := container.NewHBox(logo, spacerW(4), container.NewVBox(
 		eyebrow("MOMENTUM"),
 		text("Control", 18, colorAccentSoft, true),
