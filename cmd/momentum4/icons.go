@@ -61,10 +61,10 @@ func hexColor(c color.Color) string {
 	return fmt.Sprintf("#%02x%02x%02x", n.R, n.G, n.B)
 }
 
-// headphonesArt is the illustration on the overview and in the logo tile: an
-// original drawing of an over-ear headset, not product photography.
+// headphonesArt is the product photo shown in the overview and the logo tile,
+// cut out from its white background so it sits on the dark panel.
 //
-//go:embed assets/headphones.svg
-var headphonesSVG []byte
+//go:embed assets/headphones.png
+var headphonesPNG []byte
 
-var headphonesArt = fyne.NewStaticResource("headphones.svg", headphonesSVG)
+var headphonesArt = fyne.NewStaticResource("headphones.png", headphonesPNG)
