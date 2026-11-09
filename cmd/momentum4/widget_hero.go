@@ -60,7 +60,7 @@ func (r *heroRenderer) Layout(size fyne.Size) {
 	place(r.glow, d)
 	place(r.outer, d)
 	place(r.inner, d*0.74)
-	place(r.img, d*0.86)
+	place(r.img, d*0.78)
 }
 
 func (r *heroRenderer) MinSize() fyne.Size { return fyne.NewSize(260, 260) }

@@ -62,7 +62,7 @@ Requirements:
 - Go 1.25 or newer (see `go.mod`)
 - A C compiler. The desktop app uses [Fyne](https://fyne.io), which needs cgo on
   every platform. The Bluetooth code itself needs cgo only on macOS.
-- Linux: `sudo apt-get install libgl1-mesa-dev xorg-dev` (Debian/Ubuntu names)
+- Linux: `sudo apt-get install libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev` (Debian/Ubuntu names)
 - Windows: a C compiler such as MinGW-w64 for the GUI
 
 ```bash
