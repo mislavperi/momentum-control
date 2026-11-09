@@ -1,17 +1,26 @@
 # momentum4-control
 
-Control a Sennheiser MOMENTUM 4 from macOS: ANC, transparency, EQ, and whatever
-else the protocol turns out to expose.
+Control a Sennheiser MOMENTUM 4 from macOS, Linux or Windows: ANC, Transparent
+Hearing, EQ, and whatever else the protocol turns out to expose.
 
 ## Status
 
-Working, verified against hardware: RFCOMM transport, GAIA framing, ANC and
-transparency control, the desktop app, and the CLI (`status`, `anc`,
-`transparency`, `bass`, `watch`, `raw`, `probe`).
+Verified against hardware on macOS: RFCOMM transport, GAIA framing, ANC on/off,
+Transparent Hearing and whether it pauses music, noise cancelling strength,
+adaptive ANC, wind-noise reduction, the 4-band EQ, battery, the desktop app, and
+the CLI (`status`, `anc`, `hearing`, `transparency`, `bass`, `watch`, `raw`,
+`probe`).
 
-Not implemented, because the commands are unknown: EQ bands and presets, battery
-level, auto-off, sidetone, touch-control toggle, sound zones. Finding them needs
-`m4ctl probe` to run while the control channel is available, see below.
+Linux and Windows transports are implemented and type-checked but not yet run
+against hardware; see [Platforms](#platforms).
+
+Identified in Sennheiser's own `m4.json` and answered by the device, but not
+yet exposed: auto power-off timer (`0x0600`/`0x0601`), on-head detection
+(`0x0400`/`0x0401`), smart pause (`0x080C`/`0x080D`), auto-answer calls
+(`0x080A`/`0x080B`), comfort call (`0x0814`/`0x0815`), sidetone level 0-5
+(`0x0805`/`0x0806`), prompt mode (`0x0801`/`0x0802`), touch lock
+(`0x1606`/`0x1607`), Bluetooth compatibility mode (`0x0405`/`0x0406`) and
+multipoint device management (`0x1400`-`0x1409`).
 
 Bass boost (`0x1008`/`0x1009`) is implemented but rejected as unsupported by the
 firmware on the device this was developed against, so the app hides it.
@@ -19,10 +28,31 @@ firmware on the device this was developed against, so the app hides it.
 ## Building
 
 ```bash
-make          # builds both bin/m4ctl.app and "bin/MOMENTUM 4.app"
+make          # macOS: bin/m4ctl.app and "bin/MOMENTUM 4.app"
+              # Linux/Windows: bin/m4ctl and bin/momentum4
 open "bin/MOMENTUM 4.app"
-./scripts/m4ctl status
+./scripts/m4ctl status        # macOS; elsewhere run bin/m4ctl directly
 ```
+
+The desktop app needs cgo and a C compiler on every platform, because Fyne
+does. The Bluetooth code needs cgo only on macOS.
+
+## Platforms
+
+`internal/rfcomm` has one implementation per operating system behind the same
+API (`Dial`, `Conn`, `PairedDevices`, `OnDeviceConnected`, `Main`):
+
+| | Transport | Finding the channel | Paired devices |
+| --- | --- | --- | --- |
+| macOS | IOBluetooth via cgo + Objective-C | SDP lookup, then scan | IOBluetooth |
+| Linux | `AF_BLUETOOTH` socket, pure Go | scan only (no SDP client) | `bluetoothctl` |
+| Windows | Winsock `AF_BTH`, pure Go | Windows resolves the service UUID | `BluetoothFindFirstDevice` |
+
+Scanning is how every platform copes with the device's stale SDP record (see
+[Channel numbers move](#channel-numbers-move)), so Linux loses nothing by
+skipping SDP. Reacting to the device connecting is macOS only; elsewhere the
+app's 30-second retry covers reconnection. Other systems build against a stub
+that returns `rfcomm.ErrUnsupported`.
 
 Set `M4_DEBUG=1` to trace every frame in and out.
 
@@ -248,7 +278,7 @@ delivering.
 | Path | Purpose |
 | ---- | ------- |
 | `internal/gaia` | Frame encoding and command IDs. Pure Go, unit tested. |
-| `internal/rfcomm` | IOBluetooth RFCOMM transport (cgo + Objective-C). |
+| `internal/rfcomm` | RFCOMM transport: shared API in `rfcomm.go`, one file per OS. |
 | `internal/m4` | Client: request/response matching, settings, probing. |
 | `cmd/m4ctl` | Command line interface. |
 | `cmd/momentum4` | Desktop app (Fyne). |

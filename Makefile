@@ -18,6 +18,10 @@ GO ?= go
 
 .PHONY: all cli gui test vet clean
 
+# Only macOS needs app bundles and code signing. Linux and Windows build plain
+# binaries: their Bluetooth stacks need no bundle identity or usage string.
+ifeq ($(shell uname -s),Darwin)
+
 all: cli gui
 
 cli: $(CLI_BIN)
@@ -33,6 +37,20 @@ $(CLI_BIN): $(SOURCES) $(CLI_PLIST)
 	cp $(CLI_PLIST) $(CLI_APP)/Contents/Info.plist
 	$(GO) build -o $@ ./cmd/m4ctl
 	codesign --force --sign - $(CLI_APP)
+
+else
+
+EXE := $(if $(filter Windows_NT,$(OS)),.exe,)
+
+all: cli gui
+
+cli:
+	$(GO) build -o $(BIN_DIR)/m4ctl$(EXE) ./cmd/m4ctl
+
+gui:
+	$(GO) build -o $(BIN_DIR)/momentum4$(EXE) ./cmd/momentum4
+
+endif
 
 test:
 	$(GO) test ./...

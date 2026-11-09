@@ -1,7 +1,5 @@
 //go:build darwin
 
-// Package rfcomm opens Bluetooth Classic RFCOMM channels.
-//
 // On macOS this wraps Apple's IOBluetooth framework, since Darwin has no socket
 // family for Classic Bluetooth. A Conn behaves like a stream: bytes arrive from
 // IOBluetooth on the main thread and are buffered here for Read.
@@ -35,34 +33,12 @@ import (
 	"unsafe"
 )
 
-// SennheiserControlUUID is the SDP service UUID of the MOMENTUM 4 control
-// channel: A2129FF3-081B-4C45-8AFE-469D9C4842EC.
-var SennheiserControlUUID = [16]byte{
-	0xA2, 0x12, 0x9F, 0xF3, 0x08, 0x1B, 0x4C, 0x45,
-	0x8A, 0xFE, 0x46, 0x9D, 0x9C, 0x48, 0x42, 0xEC,
-}
-
 // maxBuffered caps the inbound buffer. The device sends small status frames, so
 // exceeding this means nothing is reading; dropping beats growing without bound.
 const maxBuffered = 1 << 20
 
-// Bounds on the asynchronous IOBluetooth operations. Opening includes an SDP
-// query and the Bluetooth link coming up, so it gets the longer budget.
-const (
-	openTimeout  = 15 * time.Second
-	writeTimeout = 5 * time.Second
-)
-
-
-
-// ErrClosed is returned by Read and Write once the channel has closed, either
-// locally or because the headphones went away.
-var ErrClosed = errors.New("rfcomm: channel closed")
-
-// ErrNoMainLoop is returned by Dial when the main dispatch queue is not being
-// serviced, since no IOBluetooth callback could be delivered.
-var ErrNoMainLoop = errors.New(
-	"rfcomm: the main dispatch queue is not being serviced, so no Bluetooth callback can arrive; wrap the program in rfcomm.Main, or dial once the GUI toolkit has started its event loop")
+// writeTimeout bounds an asynchronous IOBluetooth write.
+const writeTimeout = 5 * time.Second
 
 // mainQueueProbe bounds the check for a live main queue.
 const mainQueueProbe = 2 * time.Second
@@ -91,20 +67,6 @@ func Main(fn func()) {
 	}()
 
 	C.m4_run_main_loop()
-}
-
-// Options configures Dial.
-type Options struct {
-	// UUID is the SDP service UUID to look up. Defaults to SennheiserControlUUID.
-	UUID *[16]byte
-
-	// Channel, when non-zero, connects to that RFCOMM channel number directly and
-	// skips SDP discovery. Useful when a device does not advertise its service.
-	Channel int
-
-	// Timeout bounds the open. Zero means the default, which is generous enough
-	// for an SDP query plus the link coming up.
-	Timeout time.Duration
 }
 
 // Conn is an open RFCOMM channel.
@@ -138,10 +100,7 @@ var (
 // Dial opens an RFCOMM channel to the Bluetooth device at addr, which may be
 // written with colons or dashes ("80:C3:BA:81:F0:E3").
 func Dial(addr string, opts Options) (*Conn, error) {
-	uuid := SennheiserControlUUID
-	if opts.UUID != nil {
-		uuid = *opts.UUID
-	}
+	uuid := opts.uuid()
 
 	if C.m4_main_queue_alive(C.int(mainQueueProbe.Milliseconds())) == 0 {
 		return nil, ErrNoMainLoop
@@ -173,10 +132,7 @@ func Dial(addr string, opts Options) (*Conn, error) {
 		C.int(opts.Channel),
 	)
 
-	budget := opts.Timeout
-	if budget <= 0 {
-		budget = openTimeout
-	}
+	budget := opts.timeout()
 
 	select {
 	case err := <-c.openCh:
@@ -424,12 +380,6 @@ func m4GoOnDeviceConnected(address *C.char) {
 	if fn != nil {
 		go fn(addr)
 	}
-}
-
-// Device is a Bluetooth device paired with this Mac.
-type Device struct {
-	Address string
-	Name    string
 }
 
 // PairedDevices lists the devices macOS has paired, which is where the
