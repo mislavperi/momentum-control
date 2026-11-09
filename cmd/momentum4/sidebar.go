@@ -41,7 +41,9 @@ func (u *ui) buildSidebar() fyne.CanvasObject {
 		{pageOverview, "overview", "Overview"},
 		{pageNoise, "shield", "Noise Control"},
 		{pageEQ, "eq", "Equalizer"},
-		{pageDevice, "settings", "Device"},
+		{pageSettings, "settings", "Settings"},
+		{pageConnections, "devices", "Connections"},
+		{pageDevice, "info", "Device"},
 	} {
 		p := n.p
 		item := newNavItem(n.icon, n.label, func() { u.goTo(p) })

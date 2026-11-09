@@ -21,8 +21,13 @@ const (
 	pageOverview page = iota
 	pageNoise
 	pageEQ
+	pageSettings
+	pageConnections
 	pageDevice
 )
+
+// pageOrder is the sidebar and stacking order.
+var pageOrder = []page{pageOverview, pageNoise, pageEQ, pageSettings, pageConnections, pageDevice}
 
 // ui holds the widgets and the single client they act on.
 type ui struct {
@@ -69,6 +74,14 @@ type ui struct {
 	eqBox    fyne.CanvasObject
 	eqAbsent fyne.CanvasObject
 
+	// settings page
+	settingRows   []*settingRow
+	settingsEmpty fyne.CanvasObject
+
+	// connections page
+	hostList    *fyne.Container
+	hostCaption *canvas.Text
+
 	// device page
 	infoName, infoFirmware, infoCodec, infoBattery, infoCharge, infoChannel *canvas.Text
 
@@ -100,14 +113,16 @@ type ui struct {
 func (u *ui) build() fyne.CanvasObject {
 	u.nav = map[page]*navItem{}
 	u.pages = map[page]fyne.CanvasObject{
-		pageOverview: u.buildOverview(),
-		pageNoise:    u.buildNoise(),
-		pageEQ:       u.buildEQ(),
-		pageDevice:   u.buildDevice(),
+		pageOverview:    u.buildOverview(),
+		pageNoise:       u.buildNoise(),
+		pageEQ:          u.buildEQ(),
+		pageSettings:    u.buildSettings(),
+		pageConnections: u.buildConnections(),
+		pageDevice:      u.buildDevice(),
 	}
 
 	pageStack := container.NewStack()
-	for _, p := range []page{pageOverview, pageNoise, pageEQ, pageDevice} {
+	for _, p := range pageOrder {
 		pageStack.Add(u.pages[p])
 	}
 
@@ -133,6 +148,20 @@ func (u *ui) goTo(p page) {
 	}
 	for k, n := range u.nav {
 		n.SetSelected(k == p)
+	}
+
+	// These pages are read on demand rather than on every refresh: they are
+	// several requests each, and change only when someone changes them.
+	u.mu.Lock()
+	client := u.client
+	u.mu.Unlock()
+	if client != nil {
+		switch p {
+		case pageSettings:
+			go u.loadSettings(client)
+		case pageConnections:
+			go u.loadHosts(client)
+		}
 	}
 }
 

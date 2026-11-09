@@ -125,7 +125,11 @@ func (u *ui) connect() bool {
 
 	fyne.Do(func() { u.showConnected(true, client.ChannelID()) })
 	u.refresh()
-	go u.loadInfo(client)
+	go func() {
+		u.loadInfo(client)
+		u.loadSettings(client)
+		u.loadHosts(client)
+	}()
 	return true
 }
 
@@ -154,13 +158,35 @@ func (u *ui) disconnect() {
 	if client != nil {
 		client.Close()
 	}
-	fyne.Do(func() { u.showConnected(false, 0) })
+	fyne.Do(func() {
+		u.showConnected(false, 0)
+		if u.hostList != nil {
+			u.clearSettings()
+			u.showHosts(nil, 0)
+		}
+	})
+}
+
+// reloadHostsAfter reads the paired list again once a connect or disconnect
+// has had time to complete; the device answers the command before the link
+// actually changes.
+func (u *ui) reloadHostsAfter(client *m4.Client) {
+	select {
+	case <-time.After(3 * time.Second):
+	case <-u.quit:
+		return
+	}
+	u.loadHosts(client)
 }
 
 // watch keeps the UI in step with changes made on the headphones, and notices
 // when the connection drops.
 func (u *ui) watch(client *m4.Client) {
-	for range client.Notifications() {
+	for n := range client.Notifications() {
+		if n.Command == gaia.NotifyPairedStatus {
+			go u.loadHosts(client)
+			continue
+		}
 		// The payload layout varies per feature, so re-read rather than guess.
 		u.refresh()
 	}
