@@ -18,16 +18,16 @@ import (
 // It is not a substitute for one: it proves reads are interpreted correctly, not
 // that writes do what they claim.
 var capturedReplies = map[uint16]string{
-	gaia.CmdGetANC:          "01",
-	gaia.CmdGetTransparency: "64",
-	gaia.CmdGetBattery:      "28",
-	gaia.CmdGetSoundMode:    "010202000300",
-	gaia.CmdGetEQ:           "000501010000011200000122000001320000014200 00",
-	gaia.CmdGetDeviceName:   "4d3441454254" + "20" + "426c61636b" + "00",
-	gaia.CmdGetFirmware:     "020d2a000000",
+	gaia.CmdGetANC:           "01",
+	gaia.CmdGetTransparency:  "64",
+	gaia.CmdGetBattery:       "28",
+	gaia.CmdGetSoundMode:     "010202000300",
+	gaia.CmdGetEQ:            "000501010000011200000122000001320000014200 00",
+	gaia.CmdGetDeviceName:    "4d3441454254" + "20" + "426c61636b" + "00",
+	gaia.CmdGetFirmware:      "020d2a000000",
 	gaia.CmdGetSystemVersion: "0002000d002a",
-	gaia.CmdGetCapabilities: "0009010801 0c0103011001040102010a020b010d0004",
-	gaia.CmdGetChargeState:  "0000",
+	gaia.CmdGetCapabilities:  "0009010801 0c0103011001040102010a020b010d0004",
+	gaia.CmdGetChargeState:   "0000",
 }
 
 // capturedErrors are the commands this firmware rejects.
