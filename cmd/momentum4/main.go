@@ -9,23 +9,28 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
-	"fyne.io/fyne/v2/canvas"
-	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/widget"
 
 	"github.com/mislavperi/momentum4-control/internal/gaia"
 	"github.com/mislavperi/momentum4-control/internal/m4"
 	"github.com/mislavperi/momentum4-control/internal/rfcomm"
 )
 
-// Sound modes. The MOMENTUM 4 has no single mode setting: it has ANC on or off
-// and a separate transparency level, so each mode is a combination of the two.
+// Sound modes as the user sees them. The headphones have no single mode
+// setting; each mode is a combination of three switches:
+//
+//	Noise Cancelling  ANC on,  Transparent Hearing off
+//	Ambient           Transparent Hearing on
+//	Off               ANC off, Transparent Hearing off
+//
+// Transparent Hearing is the switch that audibly lets the outside world in.
+// The transparency level only tunes how strongly ANC works, and on its own
+// makes almost no audible difference, which is why an "Ambient" built from the
+// level alone appeared not to work.
 type mode int
 
 const (
@@ -35,6 +40,18 @@ const (
 	modeOff
 )
 
+func (m mode) String() string {
+	switch m {
+	case modeNoiseCancelling:
+		return "Noise Cancelling"
+	case modeAmbient:
+		return "Ambient"
+	case modeOff:
+		return "Off"
+	}
+	return "Unknown"
+}
+
 func main() {
 	// Fyne owns the main thread and pumps the main queue there, which is what
 	// IOBluetooth needs to deliver its callbacks. No rfcomm.Main here.
@@ -42,7 +59,7 @@ func main() {
 	a.Settings().SetTheme(newPanelTheme())
 
 	w := a.NewWindow("MOMENTUM 4")
-	w.Resize(fyne.NewSize(420, 520))
+	w.Resize(fyne.NewSize(1080, 720))
 
 	ui := newUI(w)
 	w.SetContent(ui.build())
@@ -78,68 +95,14 @@ func main() {
 	w.ShowAndRun()
 }
 
-// The gain range the sliders offer. The device accepts more, but the official
-// app works within roughly this range.
-const (
-	eqMinDB = -6
-	eqMaxDB = 6
-)
-
-// eqBand is the row of widgets for one equalizer band.
-type eqBand struct {
-	label  *canvas.Text
-	value  *canvas.Text
-	slider *widget.Slider
+// deviceInfo is what is read once per connection rather than on every refresh.
+type deviceInfo struct {
+	Name, Firmware, Codec, Charge string
 }
 
-// ui holds the widgets and the single client they act on.
-type ui struct {
-	win fyne.Window
-
-	status     *canvas.Text
-	deviceName *canvas.Text
-
-	noiseCancelling *modeButton
-	ambient         *modeButton
-	off             *modeButton
-
-	transparency    *widget.Slider
-	transLabel      *canvas.Text
-	transparencyBox fyne.CanvasObject
-	soundCard       fyne.CanvasObject
-
-	battery *canvas.Text
-	eqCard  fyne.CanvasObject
-	eqBands [gaia.EQBands]eqBand
-
-	// eq is the configuration last read from the device, so a single band can be
-	// changed without inventing values for the others.
-	eq gaia.EQ
-
-	reconnect *widget.Button
-
-	mu     sync.Mutex
-	client *m4.Client
-
-	// applying suppresses the change handlers while widgets are being set from
-	// device state, so refreshing the UI does not write the values back.
-	applying bool
-
-	// attempt identifies the current connect loop, so a newer one supersedes it.
-	attempt int
-
-	// address of the headphones, once found.
-	address string
-
-	// connecting guards against two connect loops running at once.
-	connecting bool
-
-	// quit stops the retry loop when the app is shutting down.
-	quit chan struct{}
-}
-
+// newUI creates the controller; build lays out its widgets.
 func newUI(w fyne.Window) *ui {
-	return &ui{win: w, quit: make(chan struct{})}
+	return &ui{win: w, quit: make(chan struct{}), page: pageOverview}
 }
 
 // shutdown closes the connection and stops the retry loop.
@@ -148,171 +111,93 @@ func (u *ui) shutdown() {
 	u.disconnect()
 }
 
-func (u *ui) build() fyne.CanvasObject {
-	u.deviceName = heading("MOMENTUM 4", 26, colorText, true)
-	u.status = heading("Connecting...", 12, colorTextMuted, false)
-
-	u.noiseCancelling = newModeButton("●", "Noise Cancelling", func() {
-		u.setMode(modeNoiseCancelling)
-	})
-	u.ambient = newModeButton("≈", "Ambient Sound", func() {
-		u.setMode(modeAmbient)
-	})
-	u.off = newModeButton("○", "Off", func() {
-		u.setMode(modeOff)
-	})
-
-	modes := container.NewGridWithColumns(3, u.noiseCancelling, u.ambient, u.off)
-
-	u.transLabel = canvas.NewText("Transparency: -", colorTextMuted)
-	u.transLabel.TextSize = 12
-
-	u.transparency = widget.NewSlider(0, 100)
-	u.transparency.Step = 5
-	u.transparency.OnChangeEnded = func(v float64) {
-		u.mu.Lock()
-		applying := u.applying
-		u.mu.Unlock()
-		if applying {
-			return
-		}
-		u.transLabel.Text = fmt.Sprintf("Transparency: %d%%", int(v))
-		u.transLabel.Refresh()
-		u.apply(func(c *m4.Client) error { return c.SetTransparency(int(v)) })
-	}
-
-	u.transparencyBox = container.NewVBox(u.transLabel, u.transparency)
-
-	u.soundCard = card("Ambient Sound Control",
-		container.NewVBox(modes, u.transparencyBox))
-	u.soundCard.Hide()
-
-	u.eqCard = card("Equalizer", u.buildEQ())
-	u.eqCard.Hide()
-
-	u.battery = heading("", 13, colorTextMuted, false)
-
-	u.reconnect = widget.NewButton("Reconnect", func() { go u.connectLoop() })
-
-	header := container.NewVBox(u.deviceName, u.battery, u.status)
-
-	return container.NewBorder(
-		container.NewPadded(header),
-		container.NewPadded(u.reconnect),
-		nil, nil,
-		container.NewVBox(u.soundCard, u.eqCard),
-	)
-}
-
-// buildEQ lays out one slider per band. The bands, their frequencies and the
-// gain range all come from the device itself, but the frequencies are only known
-// once it has been read, so the labels are filled in on refresh.
-func (u *ui) buildEQ() fyne.CanvasObject {
-	rows := container.NewVBox()
-
-	for i := range u.eqBands {
-		band := i
-
-		label := canvas.NewText("-", colorTextMuted)
-		label.TextSize = 12
-
-		value := canvas.NewText("0.0 dB", colorTextMuted)
-		value.TextSize = 12
-		value.Alignment = fyne.TextAlignTrailing
-
-		slider := widget.NewSlider(eqMinDB, eqMaxDB)
-		slider.Step = 0.5
-		slider.OnChangeEnded = func(v float64) {
-			u.mu.Lock()
-			applying := u.applying
-			u.mu.Unlock()
-			if applying {
-				return
-			}
-			value.Text = fmt.Sprintf("%+.1f dB", v)
-			value.Refresh()
-			u.setBandGain(band, v)
-		}
-
-		u.eqBands[band] = eqBand{label: label, value: value, slider: slider}
-		rows.Add(container.NewBorder(nil, nil, label, value, slider))
-	}
-
-	return rows
-}
-
-// setBandGain writes one band, leaving the rest of the configuration as the
-// device reported it.
-func (u *ui) setBandGain(band int, gainDB float64) {
+// isApplying reports whether widgets are being set from device state, in which
+// case their change handlers must not write the values back.
+func (u *ui) isApplying() bool {
 	u.mu.Lock()
-	eq := u.eq
-	u.mu.Unlock()
-
-	eq.Bands[band].GainCentiDB = int16(gainDB * 100)
-
-	u.mu.Lock()
-	u.eq = eq
-	u.mu.Unlock()
-
-	u.apply(func(c *m4.Client) error { return c.SetEQ(eq) })
+	defer u.mu.Unlock()
+	return u.applying
 }
 
 // setMode applies one of the three sound modes.
-//
-// Ambient and Noise Cancelling both leave ANC enabled; they differ in how much
-// of the outside world is let through, which is what the transparency level
-// controls.
 func (u *ui) setMode(m mode) {
-	u.mu.Lock()
-	applying := u.applying
-	u.mu.Unlock()
-	if applying {
+	if u.isApplying() {
 		return
 	}
 
-	u.showMode(m)
+	u.mu.Lock()
+	hasHearing := u.state.Has(gaia.CmdGetTransparentHearing)
+	u.mu.Unlock()
+
+	u.showMode(m) // optimistic; the refresh after the write corrects it
 
 	u.apply(func(c *m4.Client) error {
 		switch m {
-		case modeOff:
-			return c.SetANC(false)
 		case modeAmbient:
-			if err := c.SetANC(true); err != nil {
-				return err
+			if !hasHearing {
+				// Older firmware without the switch: the closest equivalent.
+				if err := c.SetANC(true); err != nil {
+					return err
+				}
+				return c.SetTransparency(100)
 			}
-			return c.SetTransparency(100)
+			return c.SetTransparentHearing(true)
+		case modeOff:
+			if hasHearing {
+				if err := c.SetTransparentHearing(false); err != nil {
+					return err
+				}
+			}
+			return c.SetANC(false)
 		default:
-			if err := c.SetANC(true); err != nil {
-				return err
+			if hasHearing {
+				if err := c.SetTransparentHearing(false); err != nil {
+					return err
+				}
 			}
-			return c.SetTransparency(0)
+			return c.SetANC(true)
 		}
 	})
 }
 
-// showMode highlights the active mode button.
-func (u *ui) showMode(m mode) {
-	u.noiseCancelling.SetSelected(m == modeNoiseCancelling)
-	u.ambient.SetSelected(m == modeAmbient)
-	u.off.SetSelected(m == modeOff)
-}
-
 // modeFor derives the displayed mode from the device's actual settings.
-//
-// The headphones have no single "mode" setting: ANC is on or off, and a separate
-// transparency level decides how much of the outside world comes through. The
-// three buttons are a friendlier view of those two values.
 func modeFor(state m4.State) mode {
+	if state.Has(gaia.CmdGetTransparentHearing) && state.TransparentHearing {
+		return modeAmbient
+	}
 	if !state.Has(gaia.CmdGetANC) {
 		return modeUnknown
 	}
 	if !state.ANC {
 		return modeOff
 	}
-	if state.Transparency >= 50 {
+	if !state.Has(gaia.CmdGetTransparentHearing) && state.Transparency >= 50 {
 		return modeAmbient
 	}
 	return modeNoiseCancelling
+}
+
+// setBandGain writes one band, leaving the rest of the configuration as the
+// device reported it.
+func (u *ui) setBandGain(band int, gainDB float64) {
+	u.mu.Lock()
+	u.eq.Bands[band].GainCentiDB = int16(gainDB * 100)
+	eq := u.eq
+	u.mu.Unlock()
+
+	u.apply(func(c *m4.Client) error { return c.SetEQ(eq) })
+}
+
+// flattenEQ sets every band to 0 dB.
+func (u *ui) flattenEQ() {
+	u.mu.Lock()
+	for i := range u.eq.Bands {
+		u.eq.Bands[i].GainCentiDB = 0
+	}
+	eq := u.eq
+	u.mu.Unlock()
+
+	u.apply(func(c *m4.Client) error { return c.SetEQ(eq) })
 }
 
 // apply runs an action against the connected device, reporting failures in the
@@ -323,13 +208,13 @@ func (u *ui) apply(action func(*m4.Client) error) {
 	u.mu.Unlock()
 
 	if client == nil {
+		u.setStatus("Not connected — the change was not sent.", colorDanger)
 		return
 	}
 
 	go func() {
 		if err := action(client); err != nil {
 			u.setStatus(fmt.Sprintf("Failed: %v", err), colorDanger)
-			return
 		}
 		u.refresh()
 	}()
@@ -423,10 +308,7 @@ func (u *ui) connect() bool {
 	u.address = device.Address
 	u.mu.Unlock()
 
-	fyne.Do(func() {
-		u.deviceName.Text = device.Name
-		u.deviceName.Refresh()
-	})
+	fyne.Do(func() { u.setDeviceName(device.Name) })
 
 	client, err := m4.ConnectProgress(device.Address, rfcomm.Options{}, func(s string) {
 		log.Print(s)
@@ -448,9 +330,26 @@ func (u *ui) connect() bool {
 	client.RegisterNotifications()
 	go u.watch(client)
 
-	fyne.Do(u.soundCard.Show)
+	fyne.Do(func() { u.showConnected(true, client.ChannelID()) })
 	u.refresh()
+	go u.loadInfo(client)
 	return true
+}
+
+// loadInfo reads the details that do not change while connected.
+func (u *ui) loadInfo(client *m4.Client) {
+	var info deviceInfo
+	info.Name, _ = client.DeviceName()
+	info.Firmware, _ = client.Firmware()
+	info.Codec, _ = client.Codec()
+	info.Charge, _ = client.ChargeState()
+
+	u.mu.Lock()
+	current := u.client == client
+	u.mu.Unlock()
+	if current {
+		fyne.Do(func() { u.showInfo(info) })
+	}
 }
 
 func (u *ui) disconnect() {
@@ -462,14 +361,7 @@ func (u *ui) disconnect() {
 	if client != nil {
 		client.Close()
 	}
-	fyne.Do(func() {
-		if u.soundCard != nil {
-			u.soundCard.Hide()
-		}
-		if u.eqCard != nil {
-			u.eqCard.Hide()
-		}
-	})
+	fyne.Do(func() { u.showConnected(false, 0) })
 }
 
 // watch keeps the UI in step with changes made on the headphones, and notices
@@ -504,6 +396,13 @@ func (u *ui) refresh() {
 		return
 	}
 
+	u.mu.Lock()
+	u.state = state
+	if state.Has(gaia.CmdGetEQ) {
+		u.eq = state.EQ
+	}
+	u.mu.Unlock()
+
 	fyne.Do(func() {
 		u.mu.Lock()
 		u.applying = true
@@ -514,70 +413,11 @@ func (u *ui) refresh() {
 			u.mu.Unlock()
 		}()
 
-		// Hide what this firmware does not implement rather than showing a dead
-		// control: the device answers unsupported commands with an error.
-		hasTransparency := state.Has(gaia.CmdGetTransparency)
-		setVisible(u.transparencyBox, hasTransparency)
-
-		if hasTransparency {
-			u.transparency.SetValue(float64(state.Transparency))
-			u.transLabel.Text = fmt.Sprintf("Transparency: %d%%", state.Transparency)
-			u.transLabel.Refresh()
-		}
-
-		u.showMode(modeFor(state))
-
-		if state.Has(gaia.CmdGetBattery) {
-			u.battery.Text = fmt.Sprintf("Battery %d%%", state.Battery)
-		} else {
-			u.battery.Text = ""
-		}
-		u.battery.Refresh()
-
-		if state.Has(gaia.CmdGetEQ) {
-			u.eqCard.Show()
-			u.mu.Lock()
-			u.eq = state.EQ
-			u.mu.Unlock()
-
-			for i, band := range state.EQ.Bands {
-				u.eqBands[i].label.Text = formatHz(band.Frequency)
-				u.eqBands[i].label.Refresh()
-				u.eqBands[i].value.Text = fmt.Sprintf("%+.1f dB", band.Gain())
-				u.eqBands[i].value.Refresh()
-				u.eqBands[i].slider.SetValue(band.Gain())
-			}
-		} else {
-			u.eqCard.Hide()
-		}
-
-		u.setStatusNow(fmt.Sprintf("Connected  ·  RFCOMM channel %d", state.ChannelID), colorTextMuted)
+		u.showState(state)
+		u.setStatusNow("Connected", colorTextMuted)
 	})
-}
-
-// formatHz renders a band's centre frequency the way an equalizer labels it.
-func formatHz(hz uint16) string {
-	if hz >= 1000 {
-		return fmt.Sprintf("%.1fk", float64(hz)/1000)
-	}
-	return fmt.Sprintf("%d", hz)
-}
-
-// setVisible shows or hides a widget, since Fyne has no single call for it.
-func setVisible(o fyne.CanvasObject, visible bool) {
-	if visible {
-		o.Show()
-		return
-	}
-	o.Hide()
 }
 
 func (u *ui) setStatus(text string, col color.Color) {
 	fyne.Do(func() { u.setStatusNow(text, col) })
-}
-
-func (u *ui) setStatusNow(text string, col color.Color) {
-	u.status.Text = text
-	u.status.Color = col
-	u.status.Refresh()
 }
