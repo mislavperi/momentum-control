@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mislavperi/momentum4-control/internal/gaia"
-	"github.com/mislavperi/momentum4-control/internal/rfcomm"
+	"github.com/mislavperi/momentum-control/internal/gaia"
+	"github.com/mislavperi/momentum-control/internal/rfcomm"
 )
 
 // fallbackChannels are tried, in order, when the channel SDP advertises does not

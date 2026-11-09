@@ -5,8 +5,8 @@ import (
 
 	"fyne.io/fyne/v2"
 
-	"github.com/mislavperi/momentum4-control/internal/gaia"
-	"github.com/mislavperi/momentum4-control/internal/m4"
+	"github.com/mislavperi/momentum-control/internal/gaia"
+	"github.com/mislavperi/momentum-control/internal/m4"
 )
 
 // setMode applies one of the three sound modes.

@@ -26,7 +26,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/mislavperi/momentum4-control/internal/gaia"
+	"github.com/mislavperi/momentum-control/internal/gaia"
 )
 
 // btsnoop file header: the magic string, then version and datalink type.

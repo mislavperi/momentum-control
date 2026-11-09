@@ -3,7 +3,7 @@ package m4
 import (
 	"time"
 
-	"github.com/mislavperi/momentum4-control/internal/gaia"
+	"github.com/mislavperi/momentum-control/internal/gaia"
 )
 
 // BassBoost reports whether the bass boost EQ preset is on.

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/mislavperi/momentum4-control/internal/rfcomm"
+	"github.com/mislavperi/momentum-control/internal/rfcomm"
 )
 
 // deviceNameHints matches the paired-device name for a MOMENTUM 4.

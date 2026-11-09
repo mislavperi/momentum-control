@@ -10,7 +10,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 
-	"github.com/mislavperi/momentum4-control/internal/rfcomm"
+	"github.com/mislavperi/momentum-control/internal/rfcomm"
 )
 
 func main() {

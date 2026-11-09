@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/mislavperi/momentum4-control/internal/gaia"
+	"github.com/mislavperi/momentum-control/internal/gaia"
 )
 
 // ANC reports whether active noise cancellation is on.

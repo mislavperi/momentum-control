@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/mislavperi/momentum4-control/internal/gaia"
+	"github.com/mislavperi/momentum-control/internal/gaia"
 )
 
 // State is a snapshot of the settings the device exposes.

@@ -8,9 +8,9 @@ import (
 
 	"fyne.io/fyne/v2"
 
-	"github.com/mislavperi/momentum4-control/internal/gaia"
-	"github.com/mislavperi/momentum4-control/internal/m4"
-	"github.com/mislavperi/momentum4-control/internal/rfcomm"
+	"github.com/mislavperi/momentum-control/internal/gaia"
+	"github.com/mislavperi/momentum-control/internal/m4"
+	"github.com/mislavperi/momentum-control/internal/rfcomm"
 )
 
 // retryInterval is how long to wait before trying the control channel again.

@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"github.com/mislavperi/momentum4-control/internal/gaia"
+	"github.com/mislavperi/momentum-control/internal/gaia"
 )
 
 // buildCapture assembles a minimal btsnoop file containing the given payloads.

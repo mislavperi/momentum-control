@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/mislavperi/momentum4-control/internal/gaia"
+	"github.com/mislavperi/momentum-control/internal/gaia"
 )
 
 // ProbeResult is the outcome of sending one command during discovery.

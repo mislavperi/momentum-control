@@ -4,7 +4,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 
-	"github.com/mislavperi/momentum4-control/internal/m4"
+	"github.com/mislavperi/momentum-control/internal/m4"
 )
 
 // modePills is one row of Noise Cancelling / Ambient / Off buttons. The same

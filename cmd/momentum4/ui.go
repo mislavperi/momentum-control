@@ -10,8 +10,8 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 
-	"github.com/mislavperi/momentum4-control/internal/gaia"
-	"github.com/mislavperi/momentum4-control/internal/m4"
+	"github.com/mislavperi/momentum-control/internal/gaia"
+	"github.com/mislavperi/momentum-control/internal/m4"
 )
 
 // Pages reachable from the sidebar.

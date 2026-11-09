@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mislavperi/momentum4-control/internal/gaia"
+	"github.com/mislavperi/momentum-control/internal/gaia"
 )
 
 // The bytes below are exactly what a MOMENTUM 4 sent in reply to Sennheiser's

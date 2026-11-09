@@ -1,4 +1,4 @@
-module github.com/mislavperi/momentum4-control
+module github.com/mislavperi/momentum-control
 
 go 1.25
 

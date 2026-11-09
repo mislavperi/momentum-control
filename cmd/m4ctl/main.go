@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mislavperi/momentum4-control/internal/gaia"
-	"github.com/mislavperi/momentum4-control/internal/m4"
-	"github.com/mislavperi/momentum4-control/internal/rfcomm"
+	"github.com/mislavperi/momentum-control/internal/gaia"
+	"github.com/mislavperi/momentum-control/internal/m4"
+	"github.com/mislavperi/momentum-control/internal/rfcomm"
 )
 
 const usage = `m4ctl - control a Sennheiser MOMENTUM 4

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mislavperi/momentum4-control/internal/gaia"
+	"github.com/mislavperi/momentum-control/internal/gaia"
 )
 
 // TestMain shortens the per-read timeout: several tests exercise a device that

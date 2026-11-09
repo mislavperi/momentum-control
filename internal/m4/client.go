@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mislavperi/momentum4-control/internal/gaia"
+	"github.com/mislavperi/momentum-control/internal/gaia"
 )
 
 // DefaultTimeout bounds how long a request waits for its reply.

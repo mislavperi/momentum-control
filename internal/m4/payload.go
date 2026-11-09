@@ -3,7 +3,7 @@ package m4
 import (
 	"fmt"
 
-	"github.com/mislavperi/momentum4-control/internal/gaia"
+	"github.com/mislavperi/momentum-control/internal/gaia"
 )
 
 func payloadByte(f gaia.Frame, cmd uint16) (byte, error) {
