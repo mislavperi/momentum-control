@@ -30,6 +30,11 @@ Commands:
   transparency <0-100> Set the noise cancelling level, 0 max ANC to 100 transparent
   hearing on|off       Turn Transparent Hearing (ambient sound) on or off
   bass on|off          Turn the bass boost preset on or off
+  get [setting]        Show one device setting, or all of them
+  set <setting> <val>  Change a device setting (see 'get' for names and values)
+  hosts                List the hosts paired with the headphones (multipoint)
+  host connect|disconnect|forget <index>
+                       Act on a paired host from 'hosts'
   watch                Print setting changes as they happen on the headphones
   probe                Sweep read-only commands to discover unknown features
 
@@ -146,6 +151,14 @@ func run(args []string, opt options) error {
 			return err
 		}
 		return showStatus(client)
+	case "get":
+		return getSettings(client, args[1:])
+	case "set":
+		return setSetting(client, args[1:])
+	case "hosts":
+		return listHosts(client)
+	case "host":
+		return hostAction(client, args[1:])
 	case "watch":
 		return watch(client)
 	case "raw":
@@ -362,4 +375,132 @@ func onOff(b bool) string {
 		return "on"
 	}
 	return "off"
+}
+
+// getSettings prints one setting, or every setting with its allowed values.
+func getSettings(client *m4.Client, args []string) error {
+	settings := m4.Settings
+	if len(args) > 0 {
+		s, ok := m4.LookupSetting(args[0])
+		if !ok {
+			return fmt.Errorf("unknown setting %q; run 'm4ctl get' for the list", args[0])
+		}
+		settings = []m4.Setting{s}
+	}
+	for _, s := range settings {
+		value := "unsupported"
+		if v, err := s.Read(client); err == nil {
+			value = s.Format(v)
+		}
+		fmt.Printf("%-18s %-14s %s\n", s.Name, value, allowed(s))
+	}
+	return nil
+}
+
+func allowed(s m4.Setting) string {
+	switch s.Kind {
+	case m4.KindBool:
+		return "(on, off)"
+	case m4.KindLevel:
+		return fmt.Sprintf("(%d-%d)", s.Min, s.Max)
+	}
+	names := make([]string, len(s.Choices))
+	for i, ch := range s.Choices {
+		names[i] = ch.Name
+	}
+	return "(" + strings.Join(names, ", ") + ")"
+}
+
+// setSetting writes a setting and reads it back, so a write the device
+// ignored shows up as a mismatch instead of passing silently.
+func setSetting(client *m4.Client, args []string) error {
+	if len(args) != 2 {
+		return errors.New("set needs a setting and a value, e.g. 'm4ctl set sidetone 3'")
+	}
+	s, ok := m4.LookupSetting(args[0])
+	if !ok {
+		return fmt.Errorf("unknown setting %q; run 'm4ctl get' for the list", args[0])
+	}
+	v, err := s.Parse(args[1])
+	if err != nil {
+		return err
+	}
+	if err := s.Write(client, v); err != nil {
+		return err
+	}
+	got, err := s.Read(client)
+	if err != nil {
+		return fmt.Errorf("written, but reading it back failed: %w", err)
+	}
+	if got != v {
+		return fmt.Errorf("device reports %s = %s after setting %s", s.Name, s.Format(got), s.Format(v))
+	}
+	fmt.Printf("%s = %s\n", s.Name, s.Format(got))
+	return nil
+}
+
+func listHosts(client *m4.Client) error {
+	hosts, err := client.PairedHosts()
+	if err != nil {
+		return err
+	}
+	for _, h := range hosts {
+		state := "paired"
+		if h.Connected {
+			state = "connected"
+		}
+		this := ""
+		if h.This {
+			this = "  (this computer)"
+		}
+		fmt.Printf("%d  %-10s %s%s\n", h.Index, state, h.Name, this)
+	}
+	if n, err := client.MaxConnections(); err == nil {
+		fmt.Printf("\nUp to %d hosts can be connected at once.\n", n)
+	}
+	return nil
+}
+
+func hostAction(client *m4.Client, args []string) error {
+	if len(args) != 2 {
+		return errors.New("host needs an action and an index, e.g. 'm4ctl host connect 1'")
+	}
+	index, err := strconv.Atoi(args[1])
+	if err != nil {
+		return fmt.Errorf("host index %q is not a number", args[1])
+	}
+	hosts, err := client.PairedHosts()
+	if err != nil {
+		return err
+	}
+	var target *m4.PairedHost
+	for i := range hosts {
+		if hosts[i].Index == index {
+			target = &hosts[i]
+		}
+	}
+	if target == nil {
+		return fmt.Errorf("no paired host with index %d; run 'm4ctl hosts'", index)
+	}
+
+	switch args[0] {
+	case "connect":
+		err = client.ConnectHost(index)
+	case "disconnect", "forget":
+		if target.This {
+			return fmt.Errorf("%s is this computer, and doing that would cut this connection; use the system Bluetooth settings instead", target.Name)
+		}
+		if args[0] == "disconnect" {
+			err = client.DisconnectHost(index)
+		} else {
+			err = client.ForgetHost(index)
+		}
+	default:
+		return fmt.Errorf("unknown host action %q; use connect, disconnect or forget", args[0])
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s: %s requested\n", target.Name, args[0])
+	return nil
 }

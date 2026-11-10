@@ -1,288 +1,125 @@
-# momentum4-control
+# MOMENTUM 4 Control
 
-Control a Sennheiser MOMENTUM 4 from macOS, Linux or Windows: ANC, Transparent
-Hearing, EQ, and whatever else the protocol turns out to expose.
+A desktop app and command line tool for the Sennheiser MOMENTUM 4 headphones.
+They talk to the headphones directly over Bluetooth (RFCOMM), so you can control
+noise cancelling, ambient sound, EQ and device settings from your computer
+without Sennheiser's phone app.
 
-## Status
+![MOMENTUM 4 Control](docs/screenshot.png)
 
-Verified against hardware on macOS: RFCOMM transport, GAIA framing, ANC on/off,
-Transparent Hearing and whether it pauses music, noise cancelling strength,
-adaptive ANC, wind-noise reduction, the 4-band EQ, battery, the desktop app, and
-the CLI (`status`, `anc`, `hearing`, `transparency`, `bass`, `watch`, `raw`,
-`probe`).
+## Features
 
-Linux and Windows transports are implemented and type-checked but not yet run
-against hardware; see [Platforms](#platforms).
+- Active noise cancelling on/off
+- Ambient sound (Transparent Hearing), with an option to pause music while it is on
+- Noise-cancelling strength, adaptive ANC and wind-noise reduction
+- 4-band equalizer
+- Battery level, audio codec and firmware info
+- A **Settings** page: on-head detection, smart pause, auto-answer calls,
+  comfort call, sidetone (0-5), voice prompts mode, touch lock, Bluetooth
+  compatibility mode and auto power-off (15/30/60 min)
+- A **Connections** page (multipoint): see paired devices, and connect,
+  disconnect or forget them
+- A command line tool, `m4ctl`, including `m4ctl get|set <setting> [value]`
 
-Identified in Sennheiser's own `m4.json` and answered by the device, but not
-yet exposed: auto power-off timer (`0x0600`/`0x0601`), on-head detection
-(`0x0400`/`0x0401`), smart pause (`0x080C`/`0x080D`), auto-answer calls
-(`0x080A`/`0x080B`), comfort call (`0x0814`/`0x0815`), sidetone level 0-5
-(`0x0805`/`0x0806`), prompt mode (`0x0801`/`0x0802`), touch lock
-(`0x1606`/`0x1607`), Bluetooth compatibility mode (`0x0405`/`0x0406`) and
-multipoint device management (`0x1400`-`0x1409`).
+## Platform status
 
-Bass boost (`0x1008`/`0x1009`) is implemented but rejected as unsupported by the
-firmware on the device this was developed against, so the app hides it.
+| Platform | Status |
+| --- | --- |
+| macOS | Verified on real hardware |
+| Linux | Experimental: implemented, not yet tested on hardware |
+| Windows | Experimental: implemented, not yet tested on hardware |
 
-## Building
+If you try it on Linux or Windows, please open an issue with your results,
+working or not.
+
+## Install
+
+Download the archive for your system from the
+[GitHub Releases](https://github.com/mislavperi/momentum-control/releases) page.
+
+**macOS.** Unzip, then move `MOMENTUM 4.app` to Applications. The app is not
+signed, so the first time, right-click it and choose **Open**, or clear the
+quarantine flag:
+
+```bash
+xattr -dr com.apple.quarantine "MOMENTUM 4.app"
+```
+
+macOS asks for Bluetooth permission on first launch; allow it, or the app cannot
+reach the headphones. The archive also contains `bin/m4ctl.app` and
+`scripts/m4ctl` for the command line (see [Usage](#usage)).
+
+**Linux.** Extract the `tar.gz` and run `momentum4` (desktop app) or `m4ctl`
+(CLI). Your headphones must already be paired with the machine.
+
+**Windows.** Extract the zip and run `momentum4.exe` (desktop app) or `m4ctl.exe`
+(CLI). Your headphones must already be paired with the machine.
+
+## Building from source
+
+Requirements:
+
+- Go 1.25 or newer (see `go.mod`)
+- A C compiler. The desktop app uses [Fyne](https://fyne.io), which needs cgo on
+  every platform. The Bluetooth code itself needs cgo only on macOS.
+- Linux: `sudo apt-get install libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev` (Debian/Ubuntu names)
+- Windows: a C compiler such as MinGW-w64 for the GUI
 
 ```bash
 make          # macOS: bin/m4ctl.app and "bin/MOMENTUM 4.app"
               # Linux/Windows: bin/m4ctl and bin/momentum4
-open "bin/MOMENTUM 4.app"
-./scripts/m4ctl status        # macOS; elsewhere run bin/m4ctl directly
 ```
 
-The desktop app needs cgo and a C compiler on every platform, because Fyne
-does. The Bluetooth code needs cgo only on macOS.
+On macOS the Makefile also writes the `Info.plist` files and ad-hoc signs the
+bundles, which macOS requires before a process may use Bluetooth.
 
-## Platforms
+## Usage
 
-`internal/rfcomm` has one implementation per operating system behind the same
-API (`Dial`, `Conn`, `PairedDevices`, `OnDeviceConnected`, `Main`):
+Pair the headphones with your computer first, then:
 
-| | Transport | Finding the channel | Paired devices |
-| --- | --- | --- | --- |
-| macOS | IOBluetooth via cgo + Objective-C | SDP lookup, then scan | IOBluetooth |
-| Linux | `AF_BLUETOOTH` socket, pure Go | scan only (no SDP client) | `bluetoothctl` |
-| Windows | Winsock `AF_BTH`, pure Go | Windows resolves the service UUID | `BluetoothFindFirstDevice` |
+```bash
+open "bin/MOMENTUM 4.app"     # macOS desktop app; elsewhere run bin/momentum4
+```
 
-Scanning is how every platform copes with the device's stale SDP record (see
-[Channel numbers move](#channel-numbers-move)), so Linux loses nothing by
-skipping SDP. Reacting to the device connecting is macOS only; elsewhere the
-app's 30-second retry covers reconnection. Other systems build against a stub
-that returns `rfcomm.ErrUnsupported`.
+Command line examples (on macOS use `./scripts/m4ctl`, which launches the CLI
+bundle through LaunchServices so macOS attaches the Bluetooth permission to it;
+elsewhere run `bin/m4ctl`):
+
+```bash
+./scripts/m4ctl status               # current settings
+./scripts/m4ctl anc on               # noise cancelling on
+./scripts/m4ctl hearing on           # Transparent Hearing (ambient sound)
+./scripts/m4ctl transparency 40      # 0 = max ANC, 100 = transparent
+./scripts/m4ctl get                  # every device setting, with allowed values
+./scripts/m4ctl set sidetone 3       # write a setting; it is read back to confirm
+./scripts/m4ctl set prompts tones
+./scripts/m4ctl hosts                # devices paired with the headphones (multipoint)
+./scripts/m4ctl host connect 2       # connect, disconnect or forget a paired device
+./scripts/m4ctl -wait status         # keep retrying until the headphones accept
+./scripts/m4ctl -h                   # all commands and flags
+```
 
 Set `M4_DEBUG=1` to trace every frame in and out.
 
-## The protocol
+## Troubleshooting
 
-The headphones expose an SDP service named **GAIA**
-(`A2129FF3-081B-4C45-8AFE-469D9C4842EC`) on Bluetooth Classic RFCOMM, MTU 666.
-The channel number moves between connections, see below. Frames are GAIA-style:
+- **"Connection refused" or the app cannot connect.** The headphones' control
+  channel is only intermittently available, and this is a device quirk rather
+  than a bug here. The app retries in the background every 30 seconds and
+  connects as soon as the device allows. See
+  [the notes](docs/protocol.md#the-control-channel-is-only-intermittently-available).
+- **Only one controller at a time.** Close Sennheiser's phone app (and
+  disconnect it from the headphones), and any other instance of this app or
+  `m4ctl`, then try again.
+- **macOS: the CLI crashes with no message.** Run it through `./scripts/m4ctl`
+  rather than executing the binary directly, and allow the Bluetooth prompt.
 
-```
- 0      1        2       3        4..5       6..7      8..8+n   [+1]
-+------+--------+-------+--------+----------+---------+--------+------+
-| 0xFF | VERSION| FLAGS | LENGTH | VENDOR   | COMMAND | PAYLOAD| CHECK|
-+------+--------+-------+--------+----------+---------+--------+------+
-```
+## Contributing
 
-Big endian, `VERSION` 3, vendor `0x0495` (Sennheiser). `LENGTH` counts payload
-bytes. The `CHECK` byte is an XOR of the preceding bytes and is only present when
-bit 0 of `FLAGS` is set.
-
-A reply to command `C` arrives as `C | 0x0100`, or `C | 0x0180` if the device
-rejected it, in which case the first payload byte is a status code. An
-unsolicited notification arrives as `C | 0x0080`, which carries no reply bit, so
-notifications must not be matched against pending requests. Even command
-IDs set a value and the following odd ID reads it back:
-
-| Command  | Meaning          |
-| -------- | ---------------- |
-| `0x0001` | Get capability list |
-| `0x0800` | Get the audio codec in use |
-| `0x0007` | Register for notifications |
-| `0x0602` / `0x0682` | Get charge state / notification |
-| `0x0603` / `0x0683` | Get battery percentage / notification |
-| `0x1002` / `0x1003` | Set / get equalizer |
-| `0x1004` | Commit equalizer |
-| `0x1006` | Set preamp |
-| `0x1008` / `0x1009` | Set / get bass boost |
-| `0x1200` | Get hardware revision |
-| `0x1201` | Get system release version (3 x uint16) |
-| `0x1202` | Get per-component firmware versions |
-| `0x1206` | Get device name (NUL-terminated ASCII) |
-| `0x1A00` / `0x1A01` / `0x1A81` | Set / get / notify sound mode |
-| `0x1A02` / `0x1A03` | Set / get transparency (0-100) |
-| `0x1401` | Get paired hosts (multipoint) |
-| `0x1606` / `0x1607` | An unidentified on/off setting |
-| `0x1A04` / `0x1A05` | Set / get ANC |
-| `0x1804` / `0x1805` / `0x1885` | Set / get / notify Transparent Hearing (what audibly lets the outside in) |
-| `0x1800` / `0x1801` | Set / get what Transparent Hearing does to playback: 0 keep playing, 1 pause |
-
-Everything below the first three rows was recovered from an HCI capture of
-Sennheiser's own app; see `cmd/m4snoop`.
-
-### Capabilities
-
-`0x0001` answers with a 16-bit count followed by two-byte `version, feature`
-pairs. The device therefore states which features it implements, which beats
-inferring support from which commands happen to answer.
-
-### ANC settings
-
-`0x1A00` carries `(setting, value)` byte pairs. These are independent settings,
-not a choice between modes, and they do not share a value range:
-
-| Setting | Meaning | Values |
-| ------- | ------- | ------ |
-| `0x01` | Wind-noise reduction | 0 off, 1 maximum, 2 automatic |
-| `0x02` | Reported as 0 throughout; another implementation calls it Comfort | 0/1 |
-| `0x03` | Adaptive noise cancelling | 0/1 |
-
-`0x1A81` arrives unsolicited with every setting when one changes, and `0x1A83`
-for transparency.
-
-The wind-noise values are ordered maximum before automatic, which reads oddly;
-that mapping comes from another implementation's value table rather than from
-anything verified here.
-
-Transparency (`0x1A02`) runs the other way from what its name suggests: 0 is full
-noise cancelling and 100 is full transparency, matching the slider in
-Sennheiser's app.
-
-### Equalizer
-
-`0x1002` takes a 16-bit entry count followed by four-byte entries of
-`01 <id> <value hi> <value lo>`, and `0x1003` reads them back given a list of the
-IDs to fetch. Entry `0x01` is an overall preamp gain; the rest are grouped by
-band, with the high nibble selecting band 1-4:
-
-| Entry | Field | Observed |
-| ----- | ----- | -------- |
-| `0xN0` | filter type | `0x000B` on every band |
-| `0xN1` | centre frequency, Hz | 360, 1200, 9000, 18000 |
-| `0xN2` | gain, signed, hundredths of a dB | `0xFED4` is -3.00 dB |
-| `0xN3` | Q factor | `0x0B50` |
-
-Reads answer only for the gain fields: a query naming type, frequency or Q goes
-unanswered. So a configuration read back carries gains alone, and the rest of
-each band is filled from the layout above before writing; writing the read as-is
-would zero every band's frequency and filter, which the device acknowledges and
-renders as no audible EQ.
-
-A write is three commands in order: `0x1002` with the bands, `0x1006` with the
-matching preamp, then `0x1004` to commit. Without the commit the change is
-inaudible.
-
-Verified against hardware — `ff 03 00 00 04 95 1a 05` (get ANC) answers
-`ff 03 00 01 04 95 1b 05 01`.
-
-There is no public specification; Qualcomm's GAIA v3 command reference is under
-NDA. The command table above comes from
-[f3Y0/momentum4-control](https://github.com/f3Y0/momentum4-control), confirmed
-here against a real device. Anything beyond it has to be found by probing.
-
-### Learning commands from the official app
-
-The reliable way to learn a command is to watch Sennheiser's own app use it.
-Android logs every HCI packet when *Bluetooth HCI snoop log* is enabled in
-developer options, and `m4snoop` decodes the control frames out of that capture:
-
-```bash
-# on the phone: enable the snoop log, toggle Bluetooth off and on,
-# then exercise every setting in Smart Control, pausing between each
-adb bugreport bt.zip          # btsnoop_hci.log is inside, under FS/data/misc/bluetooth/logs/
-go run ./cmd/m4snoop btsnoop_hci.log
-```
-
-It prints each frame with its direction and timing, then a summary of the
-commands the app sent. Frames are found by scanning for the start-of-frame
-marker and checking the vendor, rather than by reassembling RFCOMM, which is
-enough for frames this small and keeps the tool short.
-
-### Probing for unknown commands
-
-`m4ctl probe` sweeps a range of command IDs and reports which the device answers.
-It only sends odd IDs, since those read rather than write — but that is an
-observed convention in an undocumented protocol, not a guarantee, so it requires
-`-i-understand-the-risk`.
-
-## The control channel is only intermittently available
-
-The single most awkward thing about this device: it often refuses to open its
-GAIA channel at all, answering every RFCOMM open with `kIOReturnError`
-(`0xe00002bc`) for long stretches. During development it accepted a connection
-twice in an afternoon and refused the rest of the time.
-
-What did **not** make a difference, each tried repeatedly:
-
-- restarting `bluetoothd` on the Mac
-- power-cycling the headphones
-- disconnecting the phone, so nothing else held a control session
-- waiting quietly, up to ten minutes, with nothing touching the device
-- which process asked, or whether it opened the channel via SDP or by scanning
-- dialling within a second of the device connecting, in case the service only
-  accepted connections just after link establishment. It does not: the app hooks
-  IOBluetooth's connect notification, and four such dials were refused
-
-While the control channel is refused, the Airoha/RACE service on another channel
-still opens and streams data, so the Bluetooth link itself is healthy. The likely
-cause is threading: the channel used to be opened from a background dispatch
-queue with `openRFCOMMChannelSync`. It is now opened from the main thread with
-`openRFCOMMChannelAsync`, as another working macOS implementation does (see the
-macOS traps below). If refusals persist after that change, record what you see
-here.
-
-The app is built around this rather than against it: it retries in the background
-every 30 seconds and connects as soon as the device allows, so the flakiness
-stays invisible unless you go looking.
-
-Two things do make it worse, and both are avoided in the code:
-
-- Leaving a channel open when the process dies. The app closes the channel on
-  window close and on `SIGTERM`/`SIGINT`; do not `kill -9` it.
-- Hammering the device with failed opens. Scanning every channel in a tight loop
-  eventually gets even the working ones refused.
-
-## Channel numbers move
-
-The RFCOMM channel of the GAIA service is not stable: it was observed as 1 and as
-2 on the same device on the same day, and the SDP record is sometimes stale,
-advertising the previous value. HFP moved between 10 and 12 the same way.
-
-So the channel is discovered, not assumed: try SDP first, then a short list of
-candidates, and confirm each by sending a read and checking for a well-formed
-Sennheiser reply. Confirmation is the part that matters. Channel 14 is an
-Airoha/RACE endpoint that accepts the connection and answers in a protocol of its
-own (`ff 55 02 00 ee 10`), so "the channel opened" proves nothing. Channel 10-12
-is Hands-Free, in use by macOS for audio, and is never probed.
-
-## Two macOS traps
-
-Both of these fail silently, and cost real time to diagnose. They are why the
-code is shaped the way it is.
-
-**1. Classic Bluetooth has no socket API on Darwin.** There is no `AF_BLUETOOTH`;
-that is Linux only. The only route to RFCOMM is Apple's IOBluetooth framework, so
-`internal/rfcomm` is cgo over Objective-C. Pure-Go Bluetooth libraries are all
-BLE, which is a different protocol and cannot reach this service.
-
-**2. IOBluetooth needs a bundle identity *and* a running main run loop.**
-
-Without an `Info.plist` declaring `NSBluetoothAlwaysUsageDescription`, and a code
-signature to attach the grant to, TCC kills the process the moment it touches
-Bluetooth — with `SIGABRT` and no message on stderr. That is why the CLI ships as
-`bin/m4ctl.app` and is launched through `scripts/m4ctl`, which runs it via `open`
-so LaunchServices gives it its bundle identity.
-
-IOBluetooth is backed by CoreBluetooth and delivers *every* callback on the main
-queue, which a Go program never services. Without a main run loop the channel
-opens and writes succeed while not a single byte is ever delivered back. Hence
-`rfcomm.Main`, which hands the main thread to `CFRunLoopRun` and runs the program
-on a goroutine. A GUI toolkit that owns the main thread satisfies this by itself.
-
-Those two combine into a third trap: IOBluetooth must also be *called* from the
-main thread. It is not thread-safe, and opening the channel from a background
-queue with `openRFCOMMChannelSync` made the headset refuse almost every open with
-`kIOReturnError` (`0xe00002bc`) while letting the odd one through. So every call
-is posted to the main queue, the SDP query and the channel open are the
-asynchronous variants, and their results arrive in delegate callbacks; nothing
-on the main thread waits for a completion it is itself responsible for
-delivering.
-
-## Layout
-
-| Path | Purpose |
-| ---- | ------- |
-| `internal/gaia` | Frame encoding and command IDs. Pure Go, unit tested. |
-| `internal/rfcomm` | RFCOMM transport: shared API in `rfcomm.go`, one file per OS. |
-| `internal/m4` | Client: request/response matching, settings, probing. |
-| `cmd/m4ctl` | Command line interface. |
-| `cmd/momentum4` | Desktop app (Fyne). |
-| `cmd/m4snoop` | Decodes control frames out of an Android HCI snoop log. |
+Pull requests are welcome. Protocol and reverse-engineering notes live in
+[docs/protocol.md](docs/protocol.md), including how to capture Sennheiser's own
+app with an Android HCI snoop log and decode it with `cmd/m4snoop` to learn new
+commands. Reports from Linux and Windows hardware are especially useful.
 
 ## Credits
 
@@ -297,5 +134,13 @@ turn credits `m4.json` extracted from Sennheiser's official app by
 [arjun1194/momentum-control-macos](https://github.com/arjun1194/momentum-control-macos)
 is an independent macOS implementation; its documentation named the ANC settings
 precisely (wind-noise reduction has three levels, adaptive ANC is a separate
-toggle) and its SPP framing matches what is described above, which is useful
-corroboration for a protocol with no specification.
+toggle) and its SPP framing matches what is described in the
+[protocol notes](docs/protocol.md), which is useful corroboration for a
+protocol with no specification.
+
+Code derived from f3Y0/momentum4-control and justsepi/Momentum4_control_linux
+remains under those projects' MIT license notices.
+
+## License
+
+[MIT](LICENSE). This project is not affiliated with or endorsed by Sennheiser.

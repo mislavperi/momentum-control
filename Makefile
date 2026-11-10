@@ -27,8 +27,9 @@ all: cli gui
 cli: $(CLI_BIN)
 
 gui: $(SOURCES) $(GUI_PLIST)
-	@mkdir -p "$(GUI_APP)/Contents/MacOS"
+	@mkdir -p "$(GUI_APP)/Contents/MacOS" "$(GUI_APP)/Contents/Resources"
 	cp $(GUI_PLIST) "$(GUI_APP)/Contents/Info.plist"
+	cp build/AppIcon.icns "$(GUI_APP)/Contents/Resources/AppIcon.icns"
 	$(GO) build -o "$(GUI_BIN)" ./cmd/momentum4
 	codesign --force --sign - "$(GUI_APP)"
 

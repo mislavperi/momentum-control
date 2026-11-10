@@ -128,7 +128,7 @@ func isUnsupported(err error) bool {
 // a rejection is not treated as fatal.
 func (c *Client) RegisterNotifications(features ...byte) {
 	if len(features) == 0 {
-		features = []byte{gaia.FeatureUserEQ, gaia.FeatureTransparency, gaia.FeatureANC}
+		features = []byte{gaia.FeatureUserEQ, gaia.FeatureTransparency, gaia.FeatureANC, gaia.FeatureDeviceManagement}
 	}
 	for _, f := range features {
 		_, _ = c.requestTimeout(gaia.CmdRegisterNotification, f)

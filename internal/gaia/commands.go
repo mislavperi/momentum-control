@@ -70,6 +70,49 @@ const (
 	CmdSetPreamp uint16 = 0x1006
 )
 
+// Device settings, each a single byte, named in Sennheiser's m4.json and read
+// back from a MOMENTUM 4 on firmware 2.13.42. The parity is not uniform: for
+// prompts, sidetone and the call settings the setter is the lower ID.
+const (
+	CmdSetOnHeadDetection uint16 = 0x0400
+	CmdGetOnHeadDetection uint16 = 0x0401
+	CmdGetWearState       uint16 = 0x0402 // 1 in case, 2 off head, 3 on head
+	CmdSetBTCompatibility uint16 = 0x0405 // 0 better audio, 1 better compatibility
+	CmdGetBTCompatibility uint16 = 0x0406
+	CmdSetPromptMode      uint16 = 0x0801 // 0 off, 1 tones, 2 tones and voice
+	CmdGetPromptMode      uint16 = 0x0802
+	CmdSetSidetone        uint16 = 0x0805 // level 0-5
+	CmdGetSidetone        uint16 = 0x0806
+	CmdGetPromptLanguage  uint16 = 0x0807
+	CmdSetAutoAnswer      uint16 = 0x080A
+	CmdGetAutoAnswer      uint16 = 0x080B
+	CmdSetSmartPause      uint16 = 0x080C
+	CmdGetSmartPause      uint16 = 0x080D
+	CmdSetComfortCall     uint16 = 0x0814
+	CmdGetComfortCall     uint16 = 0x0815
+	CmdSetTouchLock       uint16 = 0x1606
+	CmdGetTouchLock       uint16 = 0x1607
+
+	// Timers carry a timer number and a 16-bit value in seconds. Timer 0 is the
+	// auto power-off delay.
+	CmdSetTimer       uint16 = 0x0600
+	CmdGetTimer       uint16 = 0x0601
+	TimerAutoPowerOff byte   = 0x00
+)
+
+// Multipoint: the headphones keep a list of paired hosts, indexed from 0.
+const (
+	CmdGetPairedCount    uint16 = 0x1400 // 16-bit count
+	CmdGetPairedInfo     uint16 = 0x1401 // index -> index, priority, status, NUL-terminated name
+	CmdConnectPaired     uint16 = 0x1402 // index
+	CmdDisconnectPaired  uint16 = 0x1403 // index
+	CmdGetPairedStatus   uint16 = 0x1404 // index -> index, status
+	CmdForgetPaired      uint16 = 0x1405 // index
+	CmdGetOwnPairedIndex uint16 = 0x1407 // index of the host asking
+	CmdGetMaxConnections uint16 = 0x1409
+	NotifyPairedStatus   uint16 = 0x1484 // index, status
+)
+
 // ANC settings. The sound mode payload is a sequence of (setting, value) pairs:
 // each is adjusted independently rather than one being selected out of several,
 // and they do not all take the same range of values.
@@ -104,6 +147,10 @@ const (
 	FeatureUserEQ       byte = 8
 	FeatureTransparency byte = 12
 	FeatureANC          byte = 13
+
+	// FeatureDeviceManagement pushes NotifyPairedStatus when a host connects
+	// or disconnects.
+	FeatureDeviceManagement byte = 10
 )
 
 // CommandName returns a human-readable name for a command ID, including replies.
@@ -144,6 +191,35 @@ var commandNames = map[uint16]string{
 	NotifyTransparency:       "TransparencyChanged",
 	CmdGetBattery:            "GetBattery",
 	NotifyBattery:            "BatteryChanged",
+	CmdSetOnHeadDetection:    "SetOnHeadDetection",
+	CmdGetOnHeadDetection:    "GetOnHeadDetection",
+	CmdGetWearState:          "GetWearState",
+	CmdSetBTCompatibility:    "SetBTCompatibility",
+	CmdGetBTCompatibility:    "GetBTCompatibility",
+	CmdSetPromptMode:         "SetPromptMode",
+	CmdGetPromptMode:         "GetPromptMode",
+	CmdSetSidetone:           "SetSidetone",
+	CmdGetSidetone:           "GetSidetone",
+	CmdGetPromptLanguage:     "GetPromptLanguage",
+	CmdSetAutoAnswer:         "SetAutoAnswer",
+	CmdGetAutoAnswer:         "GetAutoAnswer",
+	CmdSetSmartPause:         "SetSmartPause",
+	CmdGetSmartPause:         "GetSmartPause",
+	CmdSetComfortCall:        "SetComfortCall",
+	CmdGetComfortCall:        "GetComfortCall",
+	CmdSetTouchLock:          "SetTouchLock",
+	CmdGetTouchLock:          "GetTouchLock",
+	CmdSetTimer:              "SetTimer",
+	CmdGetTimer:              "GetTimer",
+	CmdGetPairedCount:        "GetPairedCount",
+	CmdGetPairedInfo:         "GetPairedInfo",
+	CmdConnectPaired:         "ConnectPaired",
+	CmdDisconnectPaired:      "DisconnectPaired",
+	CmdGetPairedStatus:       "GetPairedStatus",
+	CmdForgetPaired:          "ForgetPaired",
+	CmdGetOwnPairedIndex:     "GetOwnPairedIndex",
+	CmdGetMaxConnections:     "GetMaxConnections",
+	NotifyPairedStatus:       "PairedStatusChanged",
 	CmdGetChargeState:        "GetChargeState",
 	NotifyChargeState:        "ChargeStateChanged",
 	CmdGetDeviceName:         "GetDeviceName",

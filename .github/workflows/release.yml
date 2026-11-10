@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: make
+      - name: Package
+        shell: bash
+        run: |
+          arch="$(uname -m)"
+          name="momentum-control-${GITHUB_REF_NAME}-macos-${arch}"
+          mkdir -p "stage/$name/bin" "stage/$name/scripts" dist
+          cp -R "bin/MOMENTUM 4.app" "stage/$name/"
+          cp -R bin/m4ctl.app "stage/$name/bin/"
+          cp scripts/m4ctl "stage/$name/scripts/"
+          cp LICENSE README.md "stage/$name/"
+          ditto -c -k --keepParent "stage/$name" "dist/$name.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*.zip
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev
+      - name: Build and package
+        run: |
+          arch="$(uname -m)"
+          name="momentum-control-${GITHUB_REF_NAME}-linux-${arch}"
+          mkdir -p "stage/$name" dist
+          go build -o "stage/$name/m4ctl" ./cmd/m4ctl
+          go build -o "stage/$name/momentum4" ./cmd/momentum4
+          cp LICENSE README.md "stage/$name/"
+          tar -C stage -czf "dist/$name.tar.gz" "$name"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*.tar.gz
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build
+        shell: bash
+        run: |
+          name="momentum-control-${GITHUB_REF_NAME}-windows-amd64"
+          mkdir -p "stage/$name" dist
+          go build -o "stage/$name/m4ctl.exe" ./cmd/m4ctl
+          go build -ldflags "-H=windowsgui" -o "stage/$name/momentum4.exe" ./cmd/momentum4
+          cp LICENSE README.md "stage/$name/"
+          echo "PKG_NAME=$name" >> "$GITHUB_ENV"
+      - name: Package
+        shell: pwsh
+        run: Compress-Archive -Path "stage/$env:PKG_NAME" -DestinationPath "dist/$env:PKG_NAME.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*.zip
+
+  release:
+    needs: [build-macos, build-linux, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --generate-notes --title "$GITHUB_REF_NAME" \
+            --notes "Linux and Windows builds are experimental. The macOS build is unsigned: right-click the app and choose Open the first time, or run \`xattr -dr com.apple.quarantine \"MOMENTUM 4.app\"\`." \
+            artifacts/*
